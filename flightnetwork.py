@@ -22,6 +22,7 @@ class FlightNetwork:
                 y_avail = int(data.get('y_avail', 0))
                 dep_key = data.get('dep_key')
 
+
                 if i == 0 and (dep_time - original_dep_time) > timedelta(hours = 72):
                     continue
 
