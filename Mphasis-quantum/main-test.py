@@ -14,8 +14,8 @@ import dimod
 flight_graph = Graph()
 
 # Path to the CSV file
-available_flights = 'data_files/PRMI-DM-AVAILABLE_FLIGHTS.csv'  
-cancelled_flights = 'data_files/PRMI-DM_TARGET_FLIGHTS_test.csv' 
+available_flights = 'Mphasis-quantum/data_files/PRMI-DM-AVAILABLE_FLIGHTS.csv'  
+cancelled_flights = 'Mphasis-quantum/data_files/PRMI-DM_TARGET_FLIGHTS_test.csv' 
 
 # Build the graph using the CSV file
 flight_graph.add_flights_from_csv(available_flights)
