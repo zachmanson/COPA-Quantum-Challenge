@@ -85,7 +85,7 @@ for rec_and_trpnr, group in group:
     for ktrip, row in group.iterrows():
        #trip_id = f"{'1'}_{'2'}_{legs}legs_{'3'}"
        # We include the trip number and the number of legs
-        trip_id = f"{row['RECLOC']}_{row['TRIP_NUMBER']}_LEG{ktrip}_{row['DEP_KEY']}"
+        trip_id = f"{row['RECLOC']}_{int(row['TRIP_NUMBER'])}_{row['DEP_KEY']}"
         pnr = PNR(
             recloc=row['RECLOC'],
             creation_dtz=row['CREATION_DTZ'],
@@ -226,50 +226,25 @@ def time_penalty(time_difference: float) -> float:
 ## We now define the local constraint function
 #### This function adds the constraint that only one flight 
 #### Is given to a given passenger
-# variables_flight[(str(passenger.recloc), str(passenger.trip_number[0]))]["one_one"].append( ( passenger.trip_id, flight.dep_key ) )
-def local_constraint(variables_flight, penalty_combination = 1000):
+# variables_per_passenger[(str(passenger.recloc), str(passenger.trip_number[0]))]["one_one"].append( ( passenger.trip_id, flight.dep_key ) )
+def local_constraint(variables_per_passenger, penalty_combination = 1000):
     
-    direct_reaccommodations = variables_flight["one_one"] + variables_flight["forced_one"] + variables_flight["multi_one"]
-    ndirect_reaccommodations = variables_flight["one_multi"] + variables_flight["multi_multi"]
-    # We do not consider multi-multi because YOLOOOO
+    reaccommodations_passenger = variables_per_passenger["one_one"] + variables_per_passenger["forced_one"] + variables_per_passenger["multi_one"]
+    reaccommodations_passenger = reaccommodations_passenger + variables_per_passenger["one_multi"] + variables_per_passenger["multi_multi"]
 
-    dir_combinations = list(itertools.combinations(direct_reaccommodations, 2))
-    ndir_combinations = list(itertools.combinations(ndirect_reaccommodations, 2))
+    # Now we obtain the combinations
+    #combinations = [(a, b) for a, b in itertools.product(direct_reaccommodations, ndirect_reaccommodations) if (b, a) not in itertools.product(direct_reaccommodations, ndirect_reaccommodations)]
+    combinations = list(itertools.combinations(reaccommodations_passenger, 2))
 
-    # Now we iterate over the direct-direct combinations
-    for dir_combination in dir_combinations:
-        first_flight = dir_combination[0]
-        second_flight = dir_combination[1]
-
-        # We now add the interaction
-        bqm.add_interaction(
-                            first_flight, 
-                            second_flight, 
-                            penalty_combination
-                        )
-        
-    # Now we iterate over the ndir-ndir interactions
-    for ndir_combination in ndir_combinations:
-        first_flight = ndir_combination[0]
-        second_flight = ndir_combination[1]
+    # Now we iterate over the combinations
+    for combination in combinations:
+        first_variable = combination[0]
+        second_variable = combination[1]
 
         # We now add the interaction
         bqm.add_interaction(
-                            first_flight, 
-                            second_flight, 
-                            penalty_combination
-                        )
-    
-    # We now add the direct-ndirect interactions
-    dir_ndir_combinations = [(a, b) for a, b in itertools.product(direct_reaccommodations, ndirect_reaccommodations) if (b, a) not in itertools.product(direct_reaccommodations, ndirect_reaccommodations)]
-    for dir_ndir_combination in dir_ndir_combinations:
-        first_flight = dir_ndir_combinations[0]
-        second_flight = dir_ndir_combinations[1]
-
-        # We now add the interaction
-        bqm.add_interaction(
-                            first_flight, 
-                            second_flight, 
+                            first_variable, 
+                            second_variable, 
                             penalty_combination
                         )
 
@@ -281,16 +256,16 @@ def local_constraint(variables_flight, penalty_combination = 1000):
 #### This function adds the constraint for the available seats
 #### For a given flight
 
-flight_variables = {}
+variables_per_flight = {}
 
 # We first iterate over all the possible flights and create an empty dictionary
 for flight in available_flights:
-    flight_variables[str( flight.dep_key )] = {}
-    flight_variables[str( flight.dep_key )]["1Leg"] = []
-    flight_variables[str( flight.dep_key )]["2Leg"] = []
+    variables_per_flight[str( flight.dep_key )] = {}
+    variables_per_flight[str( flight.dep_key )]["1Leg"] = []
+    variables_per_flight[str( flight.dep_key )]["2Leg"] = []
     #flights_vars_dic2[str( flight.dep_key )] = []
 
-def seat_constraints(flight_variables, available_flights,  penalty_seats = int(1e8)):
+def seat_constraints(variables_per_flight, available_flights,  penalty_seats = int(1e8)):
     # We now iterate over all the flights available
     for flight in available_flights:
         # Total amount of seats available for a given flight
@@ -301,11 +276,11 @@ def seat_constraints(flight_variables, available_flights,  penalty_seats = int(1
 
         # Now we obtain the number of occupied seats for the flight variables
         ## Direct flights
-        for variable in flight_variables[flight.dep_key]["1Leg"]:
+        for variable in variables_per_flight[flight.dep_key]["1Leg"]:
             assigned_seats_1leg = assigned_seats_1leg + variable[0].pax_cnt
         
         ## Non-direct flights
-        for variable in flight_variables[flight.dep_key]["2Leg"]:
+        for variable in variables_per_flight[flight.dep_key]["2Leg"]:
             assigned_seats_2leg = assigned_seats_2leg + variable[0].pax_cnt
         
         # Total amount of assigned seats
@@ -315,7 +290,7 @@ def seat_constraints(flight_variables, available_flights,  penalty_seats = int(1
         if (assigned_seats) > int(avail_seats):
             # Now we add interactions between the variables
             ## Direct-direct interactions
-            direct =  flight_variables[flight.dep_key]["1Leg"]
+            direct =  variables_per_flight[flight.dep_key]["1Leg"]
             direct_direct = list(itertools.combinations(direct, 2))
 
             # Now we iterate and add the direct-direct interactions
@@ -335,7 +310,7 @@ def seat_constraints(flight_variables, available_flights,  penalty_seats = int(1
                                 )
             
             # Now we iterate over the 2-leg to 2-leg interaction
-            non_direct =  flight_variables[flight.dep_key]["2Leg"]
+            non_direct =  variables_per_flight[flight.dep_key]["2Leg"]
             ndirect_ndirect = list(itertools.combinations(non_direct, 2))
 
             # Now we iterate over the combinations
@@ -344,35 +319,35 @@ def seat_constraints(flight_variables, available_flights,  penalty_seats = int(1
                 ndirect2 = combination[1]
 
                 # We redefine the ndirect variables so we can add the variables as an interaction
-                ndirect1 = (ndirect1[0].trip_id, (ndirect1[1], ndirect1[2]))
-                ndirect2 = (ndirect2[0].trip_id, (ndirect2[1], ndirect2[2]))
+                ndirect1 = (ndirect1[0].trip_id, (ndirect1[1][0], ndirect1[1][1]))
+                ndirect2 = (ndirect2[0].trip_id, (ndirect2[1][0], ndirect2[1][1]))
 
                 # Now we add the interaction
                 bqm.add_interaction(
                                     ndirect1, 
-                                    ndirect1, 
+                                    ndirect2, 
                                     penalty_seats
                                 )
             
             # Now we add direct to non-direct interactions
-            direct_ndirect = [(a, b) for a, b in itertools.product(flight_variables[flight.dep_key]["1Leg"], flight_variables[flight.dep_key]["2Leg"]) 
-                               if (b, a) not in itertools.product(flight_variables[flight.dep_key]["1Leg"], flight_variables[flight.dep_key]["2Leg"])]
+            direct_ndirect = [(a, b) for a, b in itertools.product(variables_per_flight[flight.dep_key]["1Leg"], variables_per_flight[flight.dep_key]["2Leg"]) 
+                               if (b, a) not in itertools.product(variables_per_flight[flight.dep_key]["1Leg"], variables_per_flight[flight.dep_key]["2Leg"])]
             # Now we iterate over the combinations
             for combination in range(len(direct_ndirect)):
                     # First variable of direct/two-legs 
-                    dir_ndir1 = direct_ndirect[combination][0]
-                    # Second variable of direct/two-legs 
-                    dir_ndir2 = direct_ndirect[combination][1]
+                dir_ndir1 = direct_ndirect[combination][0]
+                # Second variable of direct/two-legs 
+                dir_ndir2 = direct_ndirect[combination][1]
 
-                    # We redefine the direct variables so we can add the variables as an interaction
-                    dir_ndir1 = (dir_ndir1[0].trip_id, dir_ndir1[1])
-                    dir_ndir2 = (dir_ndir2[0].trip_id, (dir_ndir2[1], dir_ndir2[2]))
+                # We redefine the direct variables so we can add the variables as an interaction
+                dir_ndir1 = (dir_ndir1[0].trip_id, dir_ndir1[1])
+                dir_ndir2 = (dir_ndir2[0].trip_id, (dir_ndir2[1][0], dir_ndir2[1][1]))
 
-                    # We now add the penalty betwen the flights
-                    bqm.add_interaction(
-                                    dir_ndir1, 
-                                    dir_ndir2, 
-                                    penalty_seats
+                # We now add the penalty betwen the flights
+                bqm.add_interaction(
+                                dir_ndir1, 
+                                dir_ndir2, 
+                                penalty_seats
                                 )
 
             
@@ -414,10 +389,10 @@ n_multi_multi = 0
 n_forced_one = 0
 
 # We create a dataframe that tell us all the possibilities that we can have PER RECLOC and PER trip number!
-# flight_variables stores the variables FOR a given flight
-# variables_flight stores the flights FOR a given variable
+# variables_per_flight stores the variables FOR a given flight
+# variables_per_passenger stores the flights FOR a given variable
 
-variables_flight = {}
+variables_per_passenger = {}
 
 # We create the general dictionary 
 general_dic = {}
@@ -427,7 +402,7 @@ general_dic["multi_one"] = []
 general_dic["multi_multi"] = []
 general_dic["forced_one"] = []
 
-# We now give structure to the variables_flight dictionary
+# We now give structure to the variables_per_passenger dictionary
 group = matching_pnr_df.groupby(["RECLOC", "TRIP_NUMBER"])
 
 for rec_and_trpnr, group in group:
@@ -435,10 +410,72 @@ for rec_and_trpnr, group in group:
     trip_number = rec_and_trpnr[1]
 
     # We now give structure to the dictionary storing the flights PER variable
-    variables_flight[(str(recloc), str(int(trip_number)))] = general_dic
+    variables_per_passenger[(str(recloc), str(int(trip_number)))] = general_dic
 
 
-#print(variables_flight.keys())
+#print(variables_per_passenger.keys())
+#=======================================================================================================
+
+# We create new dictionaries saving the flight out, flights in, and combinations for all the flights
+
+flights_out_dic = {}
+flights_in_dic = {}
+flights_out_in_dic = {}
+# This last dictionary contains all the possible two-legged combinations for a given origin and destination
+flights_2legs_out_in_dic = {}
+
+
+# We initialize the dictionaries
+orig_keys = Available_flights_df["ORIG_CD"].unique()
+dest_keys = Available_flights_df["DEST_CD"].unique()
+
+for orig_key in orig_keys:
+    flights_out_dic[str(orig_key)] = []
+
+for dest_key in dest_keys:
+    flights_in_dic[str(dest_key)] = []
+
+# Now we initialize for the one-legged and two-legged "Master" dictionaries
+#combinations = list( Available_flights_df.groupby(["ORIG_CD", "DEST_CD"]).groups.keys() ) #WRONG!!!
+combinations = list(itertools.product(orig_keys, dest_keys))
+for combination in combinations:
+    flights_out_in_dic[(str(combination[0]), str(combination[1]))] = []
+    flights_2legs_out_in_dic[(str(combination[0]), str(combination[1]))] = []
+
+# Now we fill in the DIRECT dictionaries
+for flight in available_flights:
+    flights_out_dic[str(flight.orig_cd)].append(flight)
+    flights_in_dic[str(flight.dest_cd)].append(flight)
+    flights_out_in_dic[( str(flight.orig_cd), str(flight.dest_cd) )].append(flight)
+
+
+# Now we fill the dictionaries for two-legged flights
+for combination in combinations:
+    first_legs = flights_out_dic[ str(combination[0]) ]
+    second_legs = flights_in_dic[ str(combination[1]) ]
+
+    # Now we check each combination
+    for first_leg in first_legs:
+        for second_leg in second_legs:
+            
+            # if the first and second leg do not satisfy spatial conditions,
+            if (first_leg.dest_cd != second_leg.orig_cd):
+                continue
+            
+            # Now we check time conditions
+            first_leg_arr = datetime.strptime(first_leg.arr_dtmz, "%Y-%m-%d %H:%M:%S")
+            second_leg_dep = datetime.strptime(second_leg.dep_dtmz, "%Y-%m-%d %H:%M:%S")
+            conn_time = (second_leg_dep - first_leg_arr).total_seconds() / 60.0    
+
+            ## if the connection time is too low or the connection time is too high
+            ### Minimum 60 minutes of time and maximum 12 hours of connection time
+            if ((conn_time <= 60) or (720 <= conn_time)):
+                continue
+            else:
+                flights_2legs_out_in_dic[(str(combination[0]), str(combination[1]))].append( (first_leg, second_leg) )
+
+
+print("Flight inventories finished!!! ")
 #=======================================================================================================
 
 # NOW WE SOLVE!!!!!!!
@@ -447,6 +484,14 @@ one_one_cost = 0
 one_multi_cost = int(1e4)
 multi_one_cost = int(1e2)
 multi_multi_cost = int(1e6)
+
+# Factor to include in the computation of the cvm!
+cvm_factor = {}
+cvm_factor["one_one"] = int(1e4)
+cvm_factor["one_multi"] = int(1e2)
+cvm_factor["multi_one"] = int(1e3)
+cvm_factor["multi_multi"] = int(1e1)
+cvm_factor["forced_one"] = int(1.5e3)
 
 # To change this cost, depending on the feedback that we obtain
 forced_one_cost = 0
@@ -460,113 +505,35 @@ n_variables = 0
 ## Testing
 #pnr_list = pnr_list[0:2]
 #available_flights = available_flights[0:10]
+print(" ¡Solving! ")
 print("Reduced dataset: ")
 print("Number of passengers: ", len(pnr_list) )
 print("Number of available flights: ", len(available_flights) )
 
 for passenger in pnr_list:
-    print("Passenger: ", passenger.recloc, "/", len(pnr_list))
-    #print("Trip number: ", passenger.trip_number[0])
+    print("(Passenger, trip number): ", (passenger.recloc, passenger.trip_number[0]), "/", len(pnr_list))
     
-    # We iterate over the available flights
-    ## DIRECT FLIGHTS
-    for flight in available_flights:
-        #print(flight.dep_key)
+    #***********************************************************************************
+    ### DIRECT FLIGHTS
+    #***********************************************************************************
 
-        new_time_dep = datetime.strptime(flight.dep_dtmz, "%Y-%m-%d %H:%M:%S")  # flight time does include seconds
-        new_time_arr = datetime.strptime(flight.arr_dtmz, "%Y-%m-%d %H:%M:%S") 
-
-        ## ONE-ONE CASE
-        ## BOOKING ONLY HAS ONE DIRECT FLIGHT
-        ## THEREFORE, WE JUST FIND A NEW DIRECT FLIGHT
-        if not pnr.booked_multi_leg:
-
-            # We check the spatial constraints
-            spat_const1 = (flight.orig_cd != passenger.orig_cd)
-            spat_const2 = (flight.dest_cd != passenger.dest_cd)
-
-            if (spat_const1 or spat_const2):
-                # The flight does not fit the criteria
-                # Since it does not pass through the passenger's origin OR destiantion
-                continue
-            else:
-
-                orig_time_dep = datetime.strptime(passenger.dep_dtmz, "%Y-%m-%d %H:%M")
-                orig_time_arr = datetime.strptime(passenger.dep_dtmz, "%Y-%m-%d %H:%M")
-                
-                time_diff_dep = ((new_time_dep - orig_time_dep).total_seconds() / 60.0) # Minutes
-                time_diff_arr = ((new_time_arr - orig_time_arr).total_seconds() / 60.0) 
-
-                cost_dep = time_penalty(time_diff_dep)
-                cost_arr = time_penalty(time_diff_arr)
-
-                # Is this a good pairing?
-                if ((cost_dep >= 0) or (cost_arr >= 0)): # Check the penalty
-                    #  We do not add an energy for this flight, the flight is already terrible!
-                    continue 
-                else:
-                    # We add a variable for this flight
-                    bqm.add_variable((passenger.trip_id, flight.dep_key), cost_arr + cost_dep + one_one_cost)
-                    n_variables = n_variables + 1
-                    n_one_one = n_one_one + 1
-                            
-                    # We save the assigned DIRECT flight for this passenger
-                    variables_flight[(str(passenger.recloc), str(passenger.trip_number[0]))]["one_one"].append( ( passenger.trip_id, flight.dep_key ) )
-
-                    # We add the assigned flight to be dictionary saving the global variables
-                    flight_variables[flight.dep_key]["1Leg"].append( (passenger, flight.dep_key) )
+    ## ONE-ONE CASE
+    ## BOOKING ONLY HAS ONE DIRECT FLIGHT
+    ## THEREFORE, WE JUST FIND A NEW DIRECT FLIGHT
+    if not pnr.booked_multi_leg:
+        
+        # We retrieve the flights important for our case
+        available_flights_case = flights_out_in_dic[ (str(passenger.orig_cd), str(passenger.dest_cd)) ]
+        for flight in available_flights_case:
             
+            # Retrieve the original times
+            new_time_dep = datetime.strptime(flight.dep_dtmz, "%Y-%m-%d %H:%M:%S")  # flight time does include seconds
+            new_time_arr = datetime.strptime(flight.arr_dtmz, "%Y-%m-%d %H:%M:%S") 
 
-        if pnr.booked_multi_leg:
-            ## FORCED-ONE CASE
-            ## BOOKING HAS SEVERAL LEGS, AND WE OBTAIN A DIRECT ONE 
-            ## FOR THE WHOLE TRIP, NOT JUST THE CANCELLED LEG
-            #*****************************************************************************************************************
-            
-            # We check spatial constraints
-            spat_const1 = (flight.orig_cd != passenger.oper_od_orig_cd)
-            spat_const2 = (flight.dest_cd != passenger.oper_od_dest_cd)
 
-            if (spat_const1 or spat_const2):
-                # The flight does not pass through the passenger's desired destination
-                # Or origin
-                continue
-                
-            else:
-                # Passenger originally BOOKED multiple legs!
-                ideal_time_dep = datetime.strptime(pnr.ideal_dep_dtmz, "%Y-%m-%d %H:%M:%S")
-                ideal_time_arr = datetime.strptime(pnr.ideal_arr_dtmz, "%Y-%m-%d %H:%M:%S")
-
-                ideal_time_diff_dep = ((new_time_dep - ideal_time_dep).total_seconds() / 60.0) # Mintues
-                ideal_time_diff_arr = ((new_time_arr - ideal_time_arr).total_seconds() / 60.0)
-
-                ideal_cost_dep = time_penalty(ideal_time_diff_dep)
-                ideal_cost_arr = time_penalty(ideal_time_diff_arr)
-                
-                # Is this flight terrible?
-                if ((ideal_cost_dep >= 0) or (ideal_cost_arr >= 0)): # Check the penalty
-                    #  We do not add an energy for this flight, the flight is already terrible!
-                    continue 
-                else:
-                    # We add a variable for this flight
-                    # We add the forced one penalty!
-                    bqm.add_variable((passenger.trip_id, flight.dep_key), ideal_cost_dep + ideal_cost_arr + forced_one_cost)
-                    n_variables = n_variables + 1
-                    n_forced_one = n_forced_one + 1
-                            
-                    # We save the assigned DIRECT flight for this passenger
-                    variables_flight[(str(passenger.recloc), str(passenger.trip_number[0]))]["forced_one"].append( ( passenger.trip_id, flight.dep_key ) )
-
-                    # We add the assigned flight to be dictionary saving the global variables
-                    flight_variables[flight.dep_key]["1Leg"].append( (passenger, flight.dep_key) )
-                
-            #*****************************************************************************************************************
-            #MULTI-ONE CASE
-            ## BOOKING HAS SEVERAL LEGS, AND WE OBTAIN A DIRECT ONE
-            ## FOR THE CANCELLED TRIP
             orig_time_dep = datetime.strptime(passenger.dep_dtmz, "%Y-%m-%d %H:%M")
             orig_time_arr = datetime.strptime(passenger.dep_dtmz, "%Y-%m-%d %H:%M")
-            
+                
             time_diff_dep = ((new_time_dep - orig_time_dep).total_seconds() / 60.0) # Minutes
             time_diff_arr = ((new_time_arr - orig_time_arr).total_seconds() / 60.0) 
 
@@ -578,27 +545,105 @@ for passenger in pnr_list:
                 #  We do not add an energy for this flight, the flight is already terrible!
                 continue 
             else:
-                # We add a variable for this flight
-                bqm.add_variable((passenger.trip_id, flight.dep_key), cost_arr + cost_dep + multi_one_cost)
+                    # We add a variable for this flight
+                bqm.add_variable((passenger.trip_id, flight.dep_key), cost_arr + cost_dep + one_one_cost
+                                 - cvm_factor["one_one"]*passenger.cvm )
                 n_variables = n_variables + 1
-                n_multi_one = n_multi_one + 1
-                        
+                n_one_one = n_one_one + 1
+                            
                 # We save the assigned DIRECT flight for this passenger
-                variables_flight[(str(passenger.recloc), str(passenger.trip_number[0]))]["multi_one"].append( ( passenger.trip_id, flight.dep_key ) )
+                variables_per_passenger[(str(passenger.recloc), str(passenger.trip_number[0]))]["one_one"].append( ( passenger.trip_id, flight.dep_key ) )
 
                 # We add the assigned flight to be dictionary saving the global variables
-                flight_variables[flight.dep_key]["1Leg"].append( (passenger, flight.dep_key) )
+                variables_per_flight[flight.dep_key]["1Leg"].append( (passenger, flight.dep_key) )
+            
+    
+    
+    if pnr.booked_multi_leg:
+        ## FORCED-ONE CASE
+        ## BOOKING HAS SEVERAL LEGS, AND WE OBTAIN A DIRECT ONE 
+        ## FOR THE WHOLE TRIP, NOT JUST THE CANCELLED LEG    
+        
+        # We retrieve the flights important for our case
+        available_flights_case = flights_out_in_dic[ (str(passenger.oper_od_orig_cd), str(passenger.oper_od_dest_cd)) ]
+        for flight in available_flights_case:
+
+            # Passenger originally BOOKED multiple legs!
+            ideal_time_dep = datetime.strptime(pnr.ideal_dep_dtmz, "%Y-%m-%d %H:%M:%S")
+            ideal_time_arr = datetime.strptime(pnr.ideal_arr_dtmz, "%Y-%m-%d %H:%M:%S")
+
+            ideal_time_diff_dep = ((new_time_dep - ideal_time_dep).total_seconds() / 60.0) # Mintues
+            ideal_time_diff_arr = ((new_time_arr - ideal_time_arr).total_seconds() / 60.0)
+
+            ideal_cost_dep = time_penalty(ideal_time_diff_dep)
+            ideal_cost_arr = time_penalty(ideal_time_diff_arr)
+                
+            # Is this flight terrible?
+            if ((ideal_cost_dep >= 0) or (ideal_cost_arr >= 0)): # Check the penalty
+                    #  We do not add an energy for this flight, the flight is already terrible!
+                continue 
+            else:
+                # We add a variable for this flight
+                # We add the forced one penalty!
+                bqm.add_variable((passenger.trip_id, flight.dep_key), ideal_cost_dep + ideal_cost_arr + forced_one_cost
+                                     - cvm_factor["forced_one"]*passenger.cvm)
+                n_variables = n_variables + 1
+                n_forced_one = n_forced_one + 1
+                            
+                # We save the assigned DIRECT flight for this passenger
+                variables_per_passenger[(str(passenger.recloc), str(passenger.trip_number[0]))]["forced_one"].append( ( passenger.trip_id, flight.dep_key ) )
+
+                # We add the assigned flight to be dictionary saving the global variables
+                variables_per_flight[flight.dep_key]["1Leg"].append( (passenger, flight.dep_key) )
+                
+            
+
+        #MULTI-ONE CASE
+        ## BOOKING HAS SEVERAL LEGS, AND WE OBTAIN A DIRECT ONE
+        ## FOR THE CANCELLED TRIP
+        available_flights_case = flights_out_in_dic[ (str(passenger.orig_cd), str(passenger.dest_cd)) ]
+        for flight in available_flights_case:
+
+            orig_time_dep = datetime.strptime(passenger.dep_dtmz, "%Y-%m-%d %H:%M")
+            orig_time_arr = datetime.strptime(passenger.dep_dtmz, "%Y-%m-%d %H:%M")
+            
+            time_diff_dep = ((new_time_dep - orig_time_dep).total_seconds() / 60.0) # Minutes
+            time_diff_arr = ((new_time_arr - orig_time_arr).total_seconds() / 60.0) 
+
+            cost_dep = time_penalty(time_diff_dep)
+            cost_arr = time_penalty(time_diff_arr)
+
+            # Is this a good pairing?
+            if ((cost_dep >= 0) or (cost_arr >= 0)): # Check the penalty
+                    #  We do not add an energy for this flight, the flight is already terrible!
+                continue 
+            else:
+                    # We add a variable for this flight
+                bqm.add_variable((passenger.trip_id, flight.dep_key), cost_arr + cost_dep + multi_one_cost
+                                 - cvm_factor["multi_one"]*passenger.cvm)
+                n_variables = n_variables + 1
+                n_multi_one = n_multi_one + 1
+                            
+                # We save the assigned DIRECT flight for this passenger
+                variables_per_passenger[(str(passenger.recloc), str(passenger.trip_number[0]))]["multi_one"].append( ( passenger.trip_id, flight.dep_key ) )
+
+                # We add the assigned flight to be dictionary saving the global variables
+                variables_per_flight[flight.dep_key]["1Leg"].append( (passenger, flight.dep_key) )
     
 
+    #****************************************************************************************************
     # Now we do NON-DIRECT flights
+    #****************************************************************************************************
     # We do NOT make the distinction between oper_orig_cd and oper_dest_cd anymore
     # Because functionally there is no difference. if the case is one-multi, oper_od_orig_cd = orig_cd
-    # And ifit is MULTI-MULTI there is NO business case
-    first_leg_flights = [flight for flight in available_flights if flight.orig_cd == passenger.orig_cd]
-    second_leg_flights = [flight for flight in available_flights if flight.dest_cd == passenger.dest_cd]   
-
+    
+    available_flights_case = flights_2legs_out_in_dic[(str(passenger.oper_od_orig_cd), str(passenger.oper_od_dest_cd))]
     # Now we iterate over the flights
-    for first_leg in first_leg_flights:
+    for flight_combination in available_flights_case:
+        
+        first_leg = flight_combination[0]
+        second_leg = flight_combination[1]
+        
         # Check the departure penalty costs FIRST before doiny any computation
         original_time_dep = datetime.strptime(passenger.dep_dtmz, "%Y-%m-%d %H:%M")  # pnr does not include seconds
         new_time_dep = datetime.strptime(first_leg.dep_dtmz, "%Y-%m-%d %H:%M:%S")  # flight time does include seconds
@@ -610,82 +655,64 @@ for passenger in pnr_list:
             # Skip all the pairings with ths flight as the first leg
             continue
 
-        # Now we check the second leg
-        for second_leg in second_leg_flights:
+        # Now we check if the second flight is trash in terms of arriving
+        original_time_arr = datetime.strptime(passenger.arr_dtmz, "%Y-%m-%d %H:%M")  # pnr does not include seconds
+        new_time_arr = datetime.strptime(second_leg.arr_dtmz, "%Y-%m-%d %H:%M:%S")
+        time_diff_arr = ((new_time_arr - original_time_arr).total_seconds() / 60.0)  # in minutes
 
-            # Check the connection cases!!!
-            ## If this is a VALID connection consider the second leg. 
-            ## Otherwise, ignore it
-            first_leg_arr = datetime.strptime(first_leg.arr_dtmz, "%Y-%m-%d %H:%M:%S")
-            second_leg_dep = datetime.strptime(second_leg.dep_dtmz, "%Y-%m-%d %H:%M:%S")
-
-            # Compute the connection time
-            conn_time = (second_leg_dep - first_leg_arr).total_seconds() / 60.0    
-
-            # Only perform the computations if the flights do indeed connect ! 
-            ## Skip this pairing if the flights do not connect, 
-            ## if the connection time is too low or the connection time is too high
-            ### Minimum 60 minutes of time and maximum 12 hours of connection time
-            if ((first_leg.dest_cd != second_leg.orig_cd) or (conn_time <= 60) or (720 <= conn_time)):
-                # Skip this pairing! 
-                # This second leg does not apply as a connecting flight
-                continue
-
-            # Now we check if the second flight is trash in terms of arriving
-            original_time_arr = datetime.strptime(passenger.arr_dtmz, "%Y-%m-%d %H:%M")  # pnr does not include seconds
-            new_time_arr = datetime.strptime(second_leg.arr_dtmz, "%Y-%m-%d %H:%M:%S")
-            time_diff_arr = ((new_time_arr - original_time_arr).total_seconds() / 60.0)  # in minutes
-
-            # Check if the cost is acceptable or not
-            cost_arr = time_penalty(time_diff_arr)
-            if (cost_arr >= 0):
-                # Skip this second leg
-                continue
+        # Check if the cost is acceptable or not
+        cost_arr = time_penalty(time_diff_arr)
+        if (cost_arr >= 0):
+            # Skip this second leg
+            continue
 
 
-            # If this does not fail, then we add the new variable! 
-            ## This pairing is acceptable then!
-            ## We differentiate between multi-multi and one-multi
+        # If this does not fail, then we add the new variable! 
+        ## This pairing is acceptable then!
+        ## We differentiate between multi-multi and one-multi
 
 
-            if pnr.booked_multi_leg:
-                #****************************************************************************************************************
+        if pnr.booked_multi_leg:
+            #****************************************************************************************************************
                 ## MULTI-MULTI COST!!! ##
-                #****************************************************************************************************************
-                bqm.add_variable((passenger.trip_id, (first_leg.dep_key, second_leg.dep_key)), 
-                                                cost_arr + cost_dep + multi_multi_cost)
-                # We add the available variables
-                n_variables = n_variables + 1
-                n_multi_multi = n_multi_multi + 1
-                variables_flight[(str(passenger.recloc), str(passenger.trip_number[0]))]["multi_multi"].append( ( passenger.trip_id, (first_leg.dep_key, second_leg.dep_key) ) )
+            #****************************************************************************************************************
+            bqm.add_variable((passenger.trip_id, (first_leg.dep_key, second_leg.dep_key)), 
+                                                cost_arr + cost_dep + multi_multi_cost
+                                                - cvm_factor["multi_multi"]*passenger.cvm)
+            # We add the available variables
+            n_variables = n_variables + 1
+            n_multi_multi = n_multi_multi + 1
+            variables_per_passenger[(str(passenger.recloc), str(passenger.trip_number[0]))]["multi_multi"].append( ( passenger.trip_id, (first_leg.dep_key, second_leg.dep_key) ) )
 
-
-                # We save the variables in the dictionary
-                flight_variables[first_leg.dep_key]["2Leg"].append( ( passenger, (first_leg.dep_key, second_leg.dep_key) ) )
-                flight_variables[second_leg.dep_key]["2Leg"].append( ( passenger, (first_leg.dep_key, second_leg.dep_key) ) )
+            # We save the variables in the dictionary
+            variables_per_flight[first_leg.dep_key]["2Leg"].append( ( passenger, (first_leg.dep_key, second_leg.dep_key) ) )
+            variables_per_flight[second_leg.dep_key]["2Leg"].append( ( passenger, (first_leg.dep_key, second_leg.dep_key) ) )
             
-            else:
-                #****************************************************************************************************************
-                ## ONE-MULTI CASE !!! ##
-                #****************************************************************************************************************
-                bqm.add_variable((passenger.trip_id, (first_leg.dep_key, second_leg.dep_key)), 
-                                                cost_arr + cost_dep + multi_multi_cost)
-                # We add the available variables
-                n_variables = n_variables + 1
-                n_one_multi = n_one_multi + 1
-                variables_flight[(str(passenger.recloc), str(passenger.trip_number[0]))]["one_multi"].append( ( passenger.trip_id, (first_leg.dep_key, second_leg.dep_key) ) )
+        else:
+            #****************************************************************************************************************
+            ## ONE-MULTI CASE !!! ##
+            #****************************************************************************************************************
+            bqm.add_variable((passenger.trip_id, (first_leg.dep_key, second_leg.dep_key)), 
+                                                cost_arr + cost_dep + multi_multi_cost
+                                                - cvm_factor["one_multi"]*passenger.cvm)
+            # We add the available variables
+            n_variables = n_variables + 1
+            n_one_multi = n_one_multi + 1
+            variables_per_passenger[(str(passenger.recloc), str(passenger.trip_number[0]))]["one_multi"].append( ( passenger.trip_id, (first_leg.dep_key, second_leg.dep_key) ) )
 
 
-                # We save the variables in the dictionary
-                flight_variables[first_leg.dep_key]["2Leg"].append( ( passenger, (first_leg.dep_key, second_leg.dep_key) ) )
-                flight_variables[second_leg.dep_key]["2Leg"].append( ( passenger, (first_leg.dep_key, second_leg.dep_key) ) )
+            # We save the variables in the dictionary
+            variables_per_flight[first_leg.dep_key]["2Leg"].append( ( passenger, (first_leg.dep_key, second_leg.dep_key) ) )
+            variables_per_flight[second_leg.dep_key]["2Leg"].append( ( passenger, (first_leg.dep_key, second_leg.dep_key) ) )
 
 
     # Now we add the constraints that the passenger is only assigned to one flight
-    local_constraint(variables_flight[(str(passenger.recloc), str(passenger.trip_number[0]))], penalty_combination = 1000)
+    local_constraint(variables_per_passenger[(str(passenger.recloc), str(passenger.trip_number[0]))], penalty_combination = int(1e6))
+    #print("Number variables so far: ", n_variables)
 
 
 # We print the total number of variables
+print("********************************************************")
 print("Number of one_one: ", n_one_one)
 print("Number of one_multi: ", n_one_multi)
 print("Number of multi_one: ", n_multi_one)
@@ -694,11 +721,48 @@ print("Number of forced_one: ", n_forced_one)
 print("Total number of variables: ", n_variables)
 
 # Now we add the global constraints for the seats
-seat_constraints(flight_variables, available_flights,  penalty_seats = int(1e8))
+seat_constraints(variables_per_flight, available_flights,  penalty_seats = int(1e8))
 
 ## Now solve the problem!!!
-#sampler = dimod.SimulatedAnnealingSampler()
-#samples = sampler.sample(bqm, num_reads = 200)
+print("********************************************************")
+print("Finding best combination: ")
+sampler = dimod.SimulatedAnnealingSampler()
+samples = sampler.sample(bqm, num_reads = 200)
 
-#best_sample = samples.first.sample
-#best_energy = samples.first.energy
+best_sample = samples.first.sample
+best_energy = samples.first.energy
+
+# Print the results
+print("********************************************************")
+print("Best Sample:", best_sample)
+print("Energy of Best Sample:", best_energy)
+print("********************************************************")
+
+
+# Step 4: Process the results
+# Extract the flight assignments from the best sample
+assignments = {}
+for key, value in best_sample.items():
+    if value == 1:  # Only consider assigned flights
+        passenger_id, flight_id = key
+        assignments.setdefault(passenger_id, []).append(flight_id)
+
+# Print the assignments
+# for passenger_id, flight_ids in assignments.items():
+#     print(f"Passenger {passenger_id} assigned to flights: {flight_ids}")
+    
+# in the output show the passenger details, its orginal time and teh allocated new fight time and the time diffrence 
+print("********************************************************")
+print("Passenger reaccommodations: ")
+print("********************************************************")
+
+for passenger_id, flight_ids in assignments.items():
+    for i in pnr_list:
+        if i.trip_id == passenger_id:
+            print(f"Passenger {passenger_id} assigned to flights: {flight_ids}")
+            print(f"Original Time: {i.dep_dtmz}")
+            for j in available_flights:
+                if j.dep_key == flight_ids[0]:
+                    print(f"New Flight Time: {j.dep_dtmz}")
+                    print(f"Time Difference: {best_sample[(passenger_id, flight_ids[0])]}")
+            print("\n")
