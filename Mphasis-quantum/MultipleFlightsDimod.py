@@ -465,7 +465,7 @@ print("Number of passengers: ", len(pnr_list) )
 print("Number of available flights: ", len(available_flights) )
 
 for passenger in pnr_list:
-    #print("Passenger: ", passenger.recloc, "/", len(pnr_list))
+    print("Passenger: ", passenger.recloc, "/", len(pnr_list))
     #print("Trip number: ", passenger.trip_number[0])
     
     # We iterate over the available flights
@@ -475,35 +475,46 @@ for passenger in pnr_list:
 
         new_time_dep = datetime.strptime(flight.dep_dtmz, "%Y-%m-%d %H:%M:%S")  # flight time does include seconds
         new_time_arr = datetime.strptime(flight.arr_dtmz, "%Y-%m-%d %H:%M:%S") 
-    
+
         ## ONE-ONE CASE
         ## BOOKING ONLY HAS ONE DIRECT FLIGHT
         ## THEREFORE, WE JUST FIND A NEW DIRECT FLIGHT
         if not pnr.booked_multi_leg:
-            orig_time_dep = datetime.strptime(passenger.dep_dtmz, "%Y-%m-%d %H:%M")
-            orig_time_arr = datetime.strptime(passenger.dep_dtmz, "%Y-%m-%d %H:%M")
-            
-            time_diff_dep = ((new_time_dep - orig_time_dep).total_seconds() / 60.0) # Minutes
-            time_diff_arr = ((new_time_arr - orig_time_arr).total_seconds() / 60.0) 
 
-            cost_dep = time_penalty(time_diff_dep)
-            cost_arr = time_penalty(time_diff_arr)
+            # We check the spatial constraints
+            spat_const1 = (flight.orig_cd != passenger.orig_cd)
+            spat_const2 = (flight.dest_cd != passenger.dest_cd)
 
-            # Is this a good pairing?
-            if ((cost_dep >= 0) or (cost_arr >= 0)): # Check the penalty
-                #  We do not add an energy for this flight, the flight is already terrible!
-                continue 
+            if (spat_const1 or spat_const2):
+                # The flight does not fit the criteria
+                # Since it does not pass through the passenger's origin OR destiantion
+                continue
             else:
-                # We add a variable for this flight
-                bqm.add_variable((passenger.trip_id, flight.dep_key), cost_arr + cost_dep + one_one_cost)
-                n_variables = n_variables + 1
-                n_one_one = n_one_one + 1
-                        
-                # We save the assigned DIRECT flight for this passenger
-                variables_flight[(str(passenger.recloc), str(passenger.trip_number[0]))]["one_one"].append( ( passenger.trip_id, flight.dep_key ) )
 
-                # We add the assigned flight to be dictionary saving the global variables
-                flight_variables[flight.dep_key]["1Leg"].append( (passenger, flight.dep_key) )
+                orig_time_dep = datetime.strptime(passenger.dep_dtmz, "%Y-%m-%d %H:%M")
+                orig_time_arr = datetime.strptime(passenger.dep_dtmz, "%Y-%m-%d %H:%M")
+                
+                time_diff_dep = ((new_time_dep - orig_time_dep).total_seconds() / 60.0) # Minutes
+                time_diff_arr = ((new_time_arr - orig_time_arr).total_seconds() / 60.0) 
+
+                cost_dep = time_penalty(time_diff_dep)
+                cost_arr = time_penalty(time_diff_arr)
+
+                # Is this a good pairing?
+                if ((cost_dep >= 0) or (cost_arr >= 0)): # Check the penalty
+                    #  We do not add an energy for this flight, the flight is already terrible!
+                    continue 
+                else:
+                    # We add a variable for this flight
+                    bqm.add_variable((passenger.trip_id, flight.dep_key), cost_arr + cost_dep + one_one_cost)
+                    n_variables = n_variables + 1
+                    n_one_one = n_one_one + 1
+                            
+                    # We save the assigned DIRECT flight for this passenger
+                    variables_flight[(str(passenger.recloc), str(passenger.trip_number[0]))]["one_one"].append( ( passenger.trip_id, flight.dep_key ) )
+
+                    # We add the assigned flight to be dictionary saving the global variables
+                    flight_variables[flight.dep_key]["1Leg"].append( (passenger, flight.dep_key) )
             
 
         if pnr.booked_multi_leg:
@@ -511,34 +522,44 @@ for passenger in pnr_list:
             ## BOOKING HAS SEVERAL LEGS, AND WE OBTAIN A DIRECT ONE 
             ## FOR THE WHOLE TRIP, NOT JUST THE CANCELLED LEG
             #*****************************************************************************************************************
-
-            # Passenger originally BOOKED multiple legs!
-            ideal_time_dep = datetime.strptime(pnr.ideal_dep_dtmz, "%Y-%m-%d %H:%M:%S")
-            ideal_time_arr = datetime.strptime(pnr.ideal_arr_dtmz, "%Y-%m-%d %H:%M:%S")
-
-            ideal_time_diff_dep = ((new_time_dep - ideal_time_dep).total_seconds() / 60.0) # Mintues
-            ideal_time_diff_arr = ((new_time_arr - ideal_time_arr).total_seconds() / 60.0)
-
-            ideal_cost_dep = time_penalty(ideal_time_diff_dep)
-            ideal_cost_arr = time_penalty(ideal_time_diff_arr)
             
-            # Is this flight terrible?
-            if ((ideal_cost_dep >= 0) or (ideal_cost_arr >= 0)): # Check the penalty
-                #  We do not add an energy for this flight, the flight is already terrible!
-                continue 
+            # We check spatial constraints
+            spat_const1 = (flight.orig_cd != passenger.oper_od_orig_cd)
+            spat_const2 = (flight.dest_cd != passenger.oper_od_dest_cd)
+
+            if (spat_const1 or spat_const2):
+                # The flight does not pass through the passenger's desired destination
+                # Or origin
+                continue
+                
             else:
-                # We add a variable for this flight
-                # We add the forced one penalty!
-                bqm.add_variable((passenger.trip_id, flight.dep_key), ideal_cost_dep + ideal_cost_arr + forced_one_cost)
-                n_variables = n_variables + 1
-                n_forced_one = n_forced_one + 1
-                        
-                # We save the assigned DIRECT flight for this passenger
-                variables_flight[(str(passenger.recloc), str(passenger.trip_number[0]))]["forced_one"].append( ( passenger.trip_id, flight.dep_key ) )
+                # Passenger originally BOOKED multiple legs!
+                ideal_time_dep = datetime.strptime(pnr.ideal_dep_dtmz, "%Y-%m-%d %H:%M:%S")
+                ideal_time_arr = datetime.strptime(pnr.ideal_arr_dtmz, "%Y-%m-%d %H:%M:%S")
 
-                # We add the assigned flight to be dictionary saving the global variables
-                flight_variables[flight.dep_key]["1Leg"].append( (passenger, flight.dep_key) )
-            
+                ideal_time_diff_dep = ((new_time_dep - ideal_time_dep).total_seconds() / 60.0) # Mintues
+                ideal_time_diff_arr = ((new_time_arr - ideal_time_arr).total_seconds() / 60.0)
+
+                ideal_cost_dep = time_penalty(ideal_time_diff_dep)
+                ideal_cost_arr = time_penalty(ideal_time_diff_arr)
+                
+                # Is this flight terrible?
+                if ((ideal_cost_dep >= 0) or (ideal_cost_arr >= 0)): # Check the penalty
+                    #  We do not add an energy for this flight, the flight is already terrible!
+                    continue 
+                else:
+                    # We add a variable for this flight
+                    # We add the forced one penalty!
+                    bqm.add_variable((passenger.trip_id, flight.dep_key), ideal_cost_dep + ideal_cost_arr + forced_one_cost)
+                    n_variables = n_variables + 1
+                    n_forced_one = n_forced_one + 1
+                            
+                    # We save the assigned DIRECT flight for this passenger
+                    variables_flight[(str(passenger.recloc), str(passenger.trip_number[0]))]["forced_one"].append( ( passenger.trip_id, flight.dep_key ) )
+
+                    # We add the assigned flight to be dictionary saving the global variables
+                    flight_variables[flight.dep_key]["1Leg"].append( (passenger, flight.dep_key) )
+                
             #*****************************************************************************************************************
             #MULTI-ONE CASE
             ## BOOKING HAS SEVERAL LEGS, AND WE OBTAIN A DIRECT ONE
