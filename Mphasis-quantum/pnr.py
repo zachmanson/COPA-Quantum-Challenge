@@ -21,6 +21,15 @@ class PNR:
         self.pax_cnt = pax_cnt  # Passenger count
         self.cvm = cvm  # Customer value score
         self.conn_time_mins = conn_time_mins  # Connection time in minutes
+        self.trip_id = None
+        self.trip_number = None,
+        self.trip_legs = None,
+        self.booked_multi_leg = None
+        self.ideal_dep_dtmz = None
+        self.ideal_dep_dtml = None
+        self.ideal_arr_dtmz = None
+        self.ideal_arr_dtml = None
+        self.trip_multi_leg = None
 
     def __repr__(self):
         return f"PNR({self.dep_key}, {self.dep_dt},Time {self.dep_dtmz} -> {self.arr_dtmz} ,{self.cabin_cd}, {self.cos_cd}, {self.orig_cd} -> {self.dest_cd})"
