@@ -707,7 +707,7 @@ for passenger in pnr_list:
 
 
     # Now we add the constraints that the passenger is only assigned to one flight
-    local_constraint(variables_per_passenger[(str(passenger.recloc), str(passenger.trip_number[0]))], penalty_combination = int(1e6))
+    #local_constraint(variables_per_passenger[(str(passenger.recloc), str(passenger.trip_number[0]))], penalty_combination = int(1e6))
     #print("Number variables so far: ", n_variables)
 
 
@@ -721,7 +721,7 @@ print("Number of forced_one: ", n_forced_one)
 print("Total number of variables: ", n_variables)
 
 # Now we add the global constraints for the seats
-seat_constraints(variables_per_flight, available_flights,  penalty_seats = int(1e8))
+#seat_constraints(variables_per_flight, available_flights,  penalty_seats = int(1e8))
 
 ## Now solve the problem!!!
 print("********************************************************")
