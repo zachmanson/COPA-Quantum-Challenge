@@ -10,11 +10,9 @@ from matplotlib.figure import Figure
 class ReaccomGUI(ctk.CTk):
     def __init__(self, csv_path: str):
         super().__init__()
-        self.title("COPA Reaccommodation Results")
-        self.geometry("775x390")
+        self.title("COPA Reaccommodation Analysis")
+        self.geometry("900x600")  # Adjusted height
         self.csv_path = csv_path
-        self.data_1leg, self.data_2leg = self._parse_data()
-        print(f"Data loaded - 1leg: {len(self.data_1leg)} rows, 2leg: {len(self.data_2leg)} rows")
         self.loading_symbol = None
         self.current_theme = "light"
 
