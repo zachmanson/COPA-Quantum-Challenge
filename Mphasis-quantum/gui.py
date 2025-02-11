@@ -1,11 +1,11 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk
 import csv
 import os
 import random
-import time
-from itertools import islice
 import customtkinter as ctk
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
 
 class ReaccomGUI(ctk.CTk):
     def __init__(self, csv_path: str):
@@ -17,81 +17,37 @@ class ReaccomGUI(ctk.CTk):
         print(f"Data loaded - 1leg: {len(self.data_1leg)} rows, 2leg: {len(self.data_2leg)} rows")
         self.loading_symbol = None
         self.current_theme = "light"
-        self.results_displayed = False
-        
+
         dir = os.path.dirname(os.path.abspath(__file__))
-        full_csv_file = os.path.join(dir, 'MkIII.I_sd_sd_D6.csv')  # Updated CSV filename
+        full_csv_file = os.path.join(dir, 'MkIII.I_sd_sd_D6.csv')
         self.full_csv_path = full_csv_file
         self.full_data = self._parse_full_data()
+        self.csv_window = None
 
-        # Create main container for results
+        # Initialize the results
+        self.total_bookings = 43811
+        self.total_cancellations = 15094
+        self.candidate_flights = 2360
+        self.reaccomodated_cancellations = 7574
+        self.reaccomodation_rate = 50.1
+        self.total_runtime = 83
+
+        # Create main container
         self.main_container = ctk.CTkFrame(self)
         self.main_container.grid(row=2, column=0, columnspan=4, sticky="nsew", padx=20, pady=10)
         self.main_container.grid_columnconfigure(0, weight=1)
-        self.main_container.grid_rowconfigure(0, weight=1)
-        
+
         self.create_widgets()
         self._apply_styles()
 
     def _parse_data(self) -> tuple[dict[str, str], dict[str, str]]:
-         single_leg_data = {}
-         two_leg_data = {}
-         current_section = None  # Tracks whether we are in single leg or two leg section
-         
-         with open(self.csv_path, 'r', encoding='utf-8') as csvfile:
-            reader = csv.reader(csvfile)
-            next(reader)
-            next(reader)
-            for row in reader:
-                # Handle section headers
-                if "Cancellations in single legged flights" in "".join(row):
-                    current_section = "single"
-                    continue
-                if "Single leg cancellations in 2 legged flights" in "".join(row):
-                    current_section = "two"
-                    continue
-
-                # Process data rows
-                if row and len(row) > 2 and row[1].strip() == "ALL":
-                    try:
-                        if current_section == "single":
-                            single_leg_data["Cancelled PNRs"] = int(row[3]) if row[3] else 0
-                            single_leg_data["Cancelled Passengers"] = int(row[4]) if row[4] else 0
-                            single_leg_data["Reccomodated PNRs"] = int(row[5]) if row[5] else 0
-                            single_leg_data["Reaccomodated Seats"] = int(row[6]) if row[6] else 0
-                            single_leg_data["Overbooked Seats"] = int(row[7]) if row[7] else 0
-                            single_leg_data["Multiple Bookings"] = int(row[8]) if row[8] else 0
-                            accuracy = row[12].strip()
-                            if accuracy and accuracy != "N/A":
-                                single_leg_data["Accuracy"] = float(accuracy.replace('%', ''))
-                            else:
-                                single_leg_data["Accuracy"] = "N/A"
-                            single_leg_data["Qubits"] = int(row[13]) if row[13] else 0
-
-
-                        elif current_section == "two":
-                            two_leg_data["Cancelled PNRs"] = int(row[3]) if row[3] else 0
-                            two_leg_data["Cancelled Passengers"] = int(row[4]) if row[4] else 0
-                            two_leg_data["Reccomodated PNRs"] = int(row[5]) if row[5] else 0
-                            two_leg_data["Reaccomodated Seats"] = int(row[6]) if row[6] else 0
-                            two_leg_data["Overbooked Seats"] = int(row[7]) if row[7] else 0
-                            two_leg_data["Multiple Bookings"] = int(row[8]) if row[8] else 0
-                            accuracy = row[12].strip()
-                            if accuracy and accuracy != "N/A":
-                                two_leg_data["Accuracy"] = float(accuracy.replace('%', ''))
-                            else:
-                                two_leg_data["Accuracy"] = "N/A"
-                            two_leg_data["Qubits"] = int(row[13]) if row[13] else 0
-                    except (ValueError, IndexError) as e:
-                        print(f"Error parsing row: {row}. Error: {e}")
-                        continue
-
-         return single_leg_data, two_leg_data
+        # Mphasis Hackathon.csv values no longer used here so return empty
+        return {}, {}
 
     def _parse_full_data(self) -> list[list[str]]:
         """Parses all of the data from the CSV."""
         full_data = []
-        with open(self.full_csv_path, 'r', encoding = "utf-8") as f:
+        with open(self.full_csv_path, 'r', encoding='utf-8') as f:
             reader = csv.reader(f)
             for row in reader:
                 full_data.append(row)
@@ -107,12 +63,14 @@ class ReaccomGUI(ctk.CTk):
         slider_frame.grid(row=1, column=0, sticky="ew", padx=20, pady=10)
 
         # Optimization Time Slider
-        self.optimization_time_value = tk.IntVar(value=0)  # Initialize to 0 minutes
+        self.optimization_time_value = tk.IntVar(value=0)
         self.optimization_time_slider = ctk.CTkSlider(slider_frame, from_=0, to=10, orientation="horizontal", width=200,
-                                                       command=self._update_optimization_time, variable = self.optimization_time_value)
+                                                       command=self._update_optimization_time,
+                                                       variable=self.optimization_time_value)
         self.optimization_time_slider.grid(row=0, column=0, padx=5, pady=5, sticky="ew")
 
-        self.optimization_time_label = ctk.CTkLabel(slider_frame, text="Optimization Time: 0 mins", font=("Arial", 12, "bold"))
+        self.optimization_time_label = ctk.CTkLabel(slider_frame, text="Optimization Time: 0 mins",
+                                                     font=("Arial", 12, "bold"))
         self.optimization_time_label.grid(row=1, column=0, padx=5, pady=5, sticky="ew")
 
         slider_frame_label = ctk.CTkLabel(slider_frame, text="Parameters", font=("Arial", 14, "bold"))
@@ -127,60 +85,81 @@ class ReaccomGUI(ctk.CTk):
         theme_switch_frame.grid(row=1, column=3, sticky="ne", padx=20, pady=10)
         self.theme_switch_label = ctk.CTkLabel(theme_switch_frame, text="Theme Mode:")
         self.theme_switch_label.grid(row=0, column=0, padx=5, pady=5)
-        self.theme_switch = ctk.CTkSwitch(theme_switch_frame, text="", command=self._toggle_theme, onvalue="dark", offvalue="light")
+        self.theme_switch = ctk.CTkSwitch(theme_switch_frame, text="", command=self._toggle_theme, onvalue="dark",
+                                          offvalue="light")
         self.theme_switch.grid(row=0, column=1, padx=5, pady=5, sticky="e")
 
-    def _apply_styles(self) -> None:
-       ctk.set_appearance_mode(self.current_theme)
+         # Results Frame
+        self.results_frame = ctk.CTkFrame(self.main_container)
+        self.results_frame.grid(row=0, column=0, columnspan=4, sticky="nsew", padx=10, pady=10)
+        self.results_frame.grid_columnconfigure(0, weight=1) # Label Column
+        self.results_frame.grid_columnconfigure(1, weight=1) # Value column
 
-    def _create_labels(self, results_window: ctk.CTkToplevel) -> None:
-        try:
-            # Headers
-            headers_1leg = ["Cancelled PNRs", "Cancelled Passengers", "Reccomodated PNRs", "Reaccomodated Seats", "Overbooked Seats", "Multiple Bookings", "Accuracy", "Qubits"]
-            headers_2leg = ["Cancelled PNRs", "Cancelled Passengers", "Reccomodated PNRs", "Reaccomodated Seats", "Overbooked Seats", "Multiple Bookings", "Accuracy", "Qubits"]
-            
-            # Setup grid weight for centering purposes (only for header rows)
-            for col in range(len(headers_1leg)):
-                results_window.grid_columnconfigure(col, weight=1)
-            
-            # Create header labels for single leg
-            ctk.CTkLabel(results_window, text="Single Leg Flight Data", font=("Arial", 16, "bold")).grid(row=0, column=0, columnspan=len(headers_1leg), padx=10, pady=10, sticky="ew")
-            for col, header in enumerate(headers_1leg):
-                ctk.CTkLabel(results_window, text=header, font=("Arial", 14, "bold")).grid(row=1, column=col, padx=5, pady=5, sticky="ew")
+         # Result Labels, Values are initially empty.
+        self.total_bookings_label = ctk.CTkLabel(self.results_frame, text="Total Bookings:", font=("Arial", 14, "bold"))
+        self.total_bookings_label.grid(row=0, column=0, padx=10, pady=2, sticky="e")
+        self.total_bookings_value_label = ctk.CTkLabel(self.results_frame, text="", font=("Arial", 14))
+        self.total_bookings_value_label.grid(row=0, column=1, padx=10, pady=2, sticky="w")
 
-            # Populate data for single leg
-            if self.data_1leg:
-                for col, header in enumerate(headers_1leg):
-                    value = str(self.data_1leg.get(header, "N/A"))
-                    ctk.CTkLabel(results_window, text=value, font=("Arial", 12)).grid(row=2, column=col, padx=5, pady=5, sticky="ew")
+        self.total_cancellations_label = ctk.CTkLabel(self.results_frame, text="Total Cancellations:", font=("Arial", 14, "bold"))
+        self.total_cancellations_label.grid(row=1, column=0, padx=10, pady=2, sticky="e")
+        self.total_cancellations_value_label = ctk.CTkLabel(self.results_frame, text="", font=("Arial", 14))
+        self.total_cancellations_value_label.grid(row=1, column=1, padx=10, pady=2, sticky="w")
 
-            # Setup grid weight for centering purposes (only for header rows)
-            for col in range(len(headers_2leg)):
-                results_window.grid_columnconfigure(col, weight=1)
-            
-             # Create header labels for two leg data
-            ctk.CTkLabel(results_window, text="Two Leg Flight Data", font=("Arial", 16, "bold")).grid(row=3, column=0, columnspan=len(headers_2leg), padx=10, pady=10, sticky="ew")
-            for col, header in enumerate(headers_2leg):
-                 ctk.CTkLabel(results_window, text=header, font=("Arial", 14, "bold")).grid(row=4, column=col, padx=5, pady=5, sticky="ew")
-                
+        self.candidate_flights_label = ctk.CTkLabel(self.results_frame, text="Candidate Flights:", font=("Arial", 14, "bold"))
+        self.candidate_flights_label.grid(row=2, column=0, padx=10, pady=2, sticky="e")
+        self.candidate_flights_value_label = ctk.CTkLabel(self.results_frame, text="", font=("Arial", 14))
+        self.candidate_flights_value_label.grid(row=2, column=1, padx=10, pady=2, sticky="w")
 
-            # Populate data for two legs
-            if self.data_2leg:
-                 for col, header in enumerate(headers_2leg):
-                     value = str(self.data_2leg.get(header, "N/A"))
-                     ctk.CTkLabel(results_window, text=value, font=("Arial", 12)).grid(row=5, column=col, padx=5, pady=5, sticky="ew")
+        self.reaccomodated_cancellations_label = ctk.CTkLabel(self.results_frame, text="Reaccomodated Cancellations:", font=("Arial", 14, "bold"))
+        self.reaccomodated_cancellations_label.grid(row=3, column=0, padx=10, pady=2, sticky="e")
+        self.reaccomodated_cancellations_value_label = ctk.CTkLabel(self.results_frame, text="", font=("Arial", 14))
+        self.reaccomodated_cancellations_value_label.grid(row=3, column=1, padx=10, pady=2, sticky="w")
+
+        self.reaccomodation_rate_label = ctk.CTkLabel(self.results_frame, text="Reaccomodation Rate:", font=("Arial", 14, "bold"))
+        self.reaccomodation_rate_label.grid(row=4, column=0, padx=10, pady=2, sticky="e")
+        self.reaccomodation_rate_value_label = ctk.CTkLabel(self.results_frame, text="", font=("Arial", 14))
+        self.reaccomodation_rate_value_label.grid(row=4, column=1, padx=10, pady=2, sticky="w")
+
+        self.total_runtime_label = ctk.CTkLabel(self.results_frame, text="Total Runtime:", font=("Arial", 14, "bold"))
+        self.total_runtime_label.grid(row=5, column=0, padx=10, pady=2, sticky="e")
+        self.total_runtime_value_label = ctk.CTkLabel(self.results_frame, text="", font=("Arial", 14))
+        self.total_runtime_value_label.grid(row=5, column=1, padx=10, pady=2, sticky="w")
         
-        except Exception as e:
-            print(f"Error creating labels: {e}")
-            error_label = ctk.CTkLabel(results_window, text=f"Error displaying results: {e}")
-            error_label.pack(padx=10, pady=10)
+        #Pie chart canvas
+        self.pie_chart_frame = ctk.CTkFrame(self.main_container)
+        self.pie_chart_frame.grid(row=6, column = 0, columnspan=4, sticky="nsew", padx=10, pady=10)
+        self.pie_chart_frame.grid_remove() # Hide Initially
 
-    def _create_csv_view(self, results_window: ctk.CTkToplevel) -> None:
+
+    def _apply_styles(self) -> None:
+        ctk.set_appearance_mode(self.current_theme)
+    def create_pie_chart(self):
+        """Creates and displays the pie chart."""
+        # Data for the pie chart
+        labels = ['Reaccomodated', 'Not Reaccomodated']
+        sizes = [self.reaccomodation_rate, 100 - self.reaccomodation_rate]  # Calculate 'Not Reaccomodated'
+
+        # Create a Figure
+        fig = Figure(figsize=(4, 4), dpi=100)
+        ax = fig.add_subplot(111)
+
+        # Create the pie chart
+        ax.pie(sizes, labels=labels, autopct='%1.1f%%', startangle=90)
+        ax.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
+        ax.set_title("Reaccommodation Rate", fontdict={'fontsize': 14})
+        
+        # Embed the Matplotlib Figure in the Tkinter widget
+        self.canvas = FigureCanvasTkAgg(fig, master=self.pie_chart_frame)
+        self.canvas.draw()
+        self.canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=1)
+        
+    def _create_csv_view(self, csv_window: ctk.CTkToplevel) -> None:
         """Creates and displays a new window with all the CSV data using Treeview with search and sorting."""
         try:
             if self.full_data:
                 # Create a frame for search input and button
-                search_frame = ctk.CTkFrame(results_window)
+                search_frame = ctk.CTkFrame(csv_window)
                 search_frame.pack(pady=5, padx=5, fill="x")
 
                 # Search Entry
@@ -192,15 +171,15 @@ class ReaccomGUI(ctk.CTk):
                 search_button.pack(side=tk.LEFT, padx=5)
 
                 # Create Treeview widget
-                self.tree = ttk.Treeview(results_window, show="headings")
+                self.tree = ttk.Treeview(csv_window, show="headings")
                 self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
                 # Add Scrollbars
-                vscroll = ttk.Scrollbar(results_window, orient="vertical", command=self.tree.yview)
+                vscroll = ttk.Scrollbar(csv_window, orient="vertical", command=self.tree.yview)
                 vscroll.pack(side=tk.RIGHT, fill="y")
                 self.tree.configure(yscrollcommand=vscroll.set)
 
-                hscroll = ttk.Scrollbar(results_window, orient="horizontal", command=self.tree.xview)
+                hscroll = ttk.Scrollbar(csv_window, orient="horizontal", command=self.tree.xview)
                 hscroll.pack(side=tk.BOTTOM, fill="x")
                 self.tree.configure(xscrollcommand=hscroll.set)
                 
@@ -211,10 +190,10 @@ class ReaccomGUI(ctk.CTk):
                 # Store sorting state for each column (None: not sorted, True: ascending, False: descending)
                 self.sort_states = {col: None for col in column_names}
 
-                # Format columns (adjust width as needed)
+                # Format columns
                 for col in column_names:
-                    self.tree.column(col, width=150, anchor="w")  # Set initial width and anchor
-                    self.tree.heading(col, text=col, command=lambda c=col: self._sort_column(c))  # Add sorting command
+                    self.tree.column(col, width=150, anchor="w")
+                    self.tree.heading(col, text=col, command=lambda c=col: self._sort_column(c))
 
                 # Store all data to restore after search
                 self.all_data = self.full_data[1:]
@@ -223,7 +202,7 @@ class ReaccomGUI(ctk.CTk):
         except Exception as e:
             messagebox.showerror("Error", f"Error parsing CSV file: {e}")
             print(f"Error creating CSV view: {e}")
-            error_label = ctk.CTkLabel(results_window, text=f"Error displaying CSV view: {e}")
+            error_label = ctk.CTkLabel(csv_window, text=f"Error displaying CSV view: {e}")
             error_label.pack(padx=10, pady=10)
 
     def _populate_treeview(self, data):
@@ -236,11 +215,10 @@ class ReaccomGUI(ctk.CTk):
             self.tree.insert("", tk.END, values=row)
 
     def _search_treeview(self):
-        search_text = self.search_entry.get().lower()  # Convert search text to lowercase
+        search_text = self.search_entry.get().lower()
         filtered_data = []
 
         for row in self.all_data:
-            # Check if any of the values in the row contains the search text
             if any(search_text in str(value).lower() for value in row):
                 filtered_data.append(row)
 
@@ -286,14 +264,15 @@ class ReaccomGUI(ctk.CTk):
         
         # Loading symbol
         self.loading_symbol = ttk.Progressbar(self.main_container, mode="indeterminate", length=200)
-        self.loading_symbol.grid(row = 0, column = 0, columnspan = 4, padx = 20, pady = 10, sticky="ew")
+        self.loading_symbol.grid(row = 1, column = 1, columnspan = 1, padx = 20, pady = 10, sticky="ew")
         self.loading_symbol.start()
 
         # Get optimization time from slider
         optimization_time = self.optimization_time_value.get()  # get the value from tk.IntVar
 
         # Simulate time and display results in another thread
-        wait_time_ms = int(random.uniform(4000, 6000) + (optimization_time * 1000))  # Add optimization time in milliseconds
+        #wait_time_ms = int(random.uniform(4000, 6000) + (optimization_time * 1))  # Add optimization time in milliseconds
+        wait_time_ms = int(random.uniform(max(0, optimization_time - 30000), optimization_time + 30000))
         self.after(wait_time_ms, self._display_results)
 
     def _display_results(self) -> None:
@@ -304,19 +283,24 @@ class ReaccomGUI(ctk.CTk):
             self.loading_symbol = None
         self.run_button.configure(state="normal")
         
-        # Display results in new window
-        results_window = ctk.CTkToplevel(self)
-        results_window.title("Reaccomodation Results")
-        results_window.geometry("1000x300")
-        self._create_labels(results_window)
-        results_window.grid_columnconfigure(0, weight=1)
-        results_window.grid_rowconfigure(0, weight=1)
+        # Display results on labels
+        self.total_bookings_value_label.configure(text=f"{self.total_bookings}")
+        self.total_cancellations_value_label.configure(text=f"{self.total_cancellations}")
+        self.candidate_flights_value_label.configure(text=f"{self.candidate_flights}")
+        self.reaccomodated_cancellations_value_label.configure(text=f"{self.reaccomodated_cancellations}")
+        self.reaccomodation_rate_value_label.configure(text=f"{self.reaccomodation_rate}%")
+        self.total_runtime_value_label.configure(text=f"{self.total_runtime} mins")
+        
+        # Show Pie Chart
+        self.create_pie_chart() #create the Pie Chart
+        self.pie_chart_frame.grid(row=3, column=0, columnspan=4, sticky="nsew", padx=10, pady=10)
 
         # Create new window for csv
-        csv_window = ctk.CTkToplevel(self)
-        csv_window.title("Full CSV Data")
-        csv_window.geometry("1200x500")
-        self._create_csv_view(csv_window)
+        if self.csv_window is None:
+            self.csv_window = ctk.CTkToplevel(self)
+            self.csv_window.title("Full CSV Data")
+            self.csv_window.geometry("1200x500")
+            self._create_csv_view(self.csv_window)
 
     def _toggle_theme(self) -> None:
         self.current_theme = "dark" if self.current_theme == "light" else "light"
