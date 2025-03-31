@@ -5,7 +5,7 @@ a = Analysis(
     ['gui.py'],
     pathex=[],
     binaries=[],
-    datas=[('MkIII.I_sd_sd_D6.csv', '.')],
+    datas=[('Results_DWAVE.csv', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

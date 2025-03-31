@@ -1,84 +1,100 @@
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 import csv
 import os
-import random
 import customtkinter as ctk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
+from matplotlib import colors as mcolors
 
 class ReaccomGUI(ctk.CTk):
     def __init__(self, csv_path: str):
         super().__init__()
         self.title("COPA Reaccommodation Analysis")
-        self.geometry("900x600")  # Adjusted height
+        self.geometry("900x650")
         self.csv_path = csv_path
         self.loading_symbol = None
-        self.current_theme = "light"
+        ctk.set_appearance_mode("system")
+        self.current_theme = ctk.get_appearance_mode()
 
-        dir = os.path.dirname(os.path.abspath(__file__))
-        full_csv_file = os.path.join(dir, 'MkIII.I_sd_sd_D6.csv')
+        try:
+            dir_path = os.path.dirname(os.path.abspath(__file__))
+        except NameError:
+            dir_path = os.getcwd()
+
+        full_csv_file = os.path.join(dir_path, 'Results_DWAVE.csv')
         self.full_csv_path = full_csv_file
-        self.full_data = self._parse_full_data()
+        try:
+            self.full_data = self._parse_full_data()
+        except FileNotFoundError:
+            messagebox.showerror("Error", f"CSV file not found: {self.full_csv_path}")
+            self.full_data = [['Error'], ['File not found']]
+        except Exception as e:
+            messagebox.showerror("Error", f"Error reading CSV file: {e}")
+            self.full_data = [['Error'], [f'Could not read file: {e}']]
+
         self.csv_window = None
+        self.canvas = None
 
-        # Initialize the results
-        self.total_bookings = 43811
-        self.total_cancellations = 15094
-        self.candidate_flights = 2360
-        self.reaccomodated_cancellations = 7574
-        self.reaccomodation_rate = 50.1
-        self.total_runtime = 83
+        self.total_cancellations = 15096
+        self.reaccomodated_passengers = 8606
+        self.num_reaccomodations = 11693
+        self.feasible_reaccomodations = 11693
+        self.reaccomodation_rate = 57.0084
+        self.total_runtime = 16
+        self.num_variables = 125452
 
-        # Create main container
         self.main_container = ctk.CTkFrame(self)
         self.main_container.grid(row=2, column=0, columnspan=4, sticky="nsew", padx=20, pady=10)
         self.main_container.grid_columnconfigure(0, weight=1)
 
         self.create_widgets()
-        self._apply_styles()
 
     def _parse_data(self) -> tuple[dict[str, str], dict[str, str]]:
-        # Mphasis Hackathon.csv values no longer used here so return empty
         return {}, {}
 
     def _parse_full_data(self) -> list[list[str]]:
-        """Parses all of the data from the CSV."""
         full_data = []
+        if not os.path.exists(self.full_csv_path):
+             raise FileNotFoundError(f"CSV file not found at path: {self.full_csv_path}")
+
         with open(self.full_csv_path, 'r', encoding='utf-8') as f:
             reader = csv.reader(f)
-            for row in reader:
-                full_data.append(row)
+            try:
+                header = next(reader)
+                full_data.append(header)
+                for row in reader:
+                    full_data.append(row)
+            except StopIteration:
+                full_data.append(['Info'])
+            except Exception as e:
+                raise
+
+        if not full_data or len(full_data) < 2:
+            if not full_data: full_data.append(['Info'])
+
         return full_data
 
     def create_widgets(self) -> None:
-        # Title
         title_label = ctk.CTkLabel(self, text="COPA Reaccommodation Analysis", font=("Arial", 24, "bold"))
         title_label.grid(row=0, column=0, columnspan=4, pady=20, sticky="ew", padx=20)
 
-        # Slider Frame
         slider_frame = ctk.CTkFrame(self, corner_radius=10)
         slider_frame.grid(row=1, column=0, sticky="ew", padx=20, pady=10)
-
-        # Optimization Time Slider
         self.optimization_time_value = tk.IntVar(value=0)
         self.optimization_time_slider = ctk.CTkSlider(slider_frame, from_=0, to=10, orientation="horizontal", width=200,
                                                        command=self._update_optimization_time,
                                                        variable=self.optimization_time_value)
         self.optimization_time_slider.grid(row=0, column=0, padx=5, pady=5, sticky="ew")
-
         self.optimization_time_label = ctk.CTkLabel(slider_frame, text="Optimization Time: 0 mins",
                                                      font=("Arial", 12, "bold"))
         self.optimization_time_label.grid(row=1, column=0, padx=5, pady=5, sticky="ew")
-
         slider_frame_label = ctk.CTkLabel(slider_frame, text="Parameters", font=("Arial", 14, "bold"))
         slider_frame_label.grid(row=0, column=2, padx=10, pady=5)
 
-        # Run button
         self.run_button = ctk.CTkButton(self, text="Run", command=self._simulate_run, font=("Arial", 14, "bold"))
         self.run_button.grid(row=1, column=1, sticky="e", padx=20, pady=10)
 
-        # Theme Switcher
         theme_switch_frame = ctk.CTkFrame(self, corner_radius=10)
         theme_switch_frame.grid(row=1, column=3, sticky="ne", padx=20, pady=10)
         self.theme_switch_label = ctk.CTkLabel(theme_switch_frame, text="Theme Mode:")
@@ -86,228 +102,383 @@ class ReaccomGUI(ctk.CTk):
         self.theme_switch = ctk.CTkSwitch(theme_switch_frame, text="", command=self._toggle_theme, onvalue="dark",
                                           offvalue="light")
         self.theme_switch.grid(row=0, column=1, padx=5, pady=5, sticky="e")
+        if self.current_theme == "dark":
+             self.theme_switch.select()
+        else:
+             self.theme_switch.deselect()
 
-         # Results Frame
         self.results_frame = ctk.CTkFrame(self.main_container)
         self.results_frame.grid(row=0, column=0, columnspan=4, sticky="nsew", padx=10, pady=10)
-        self.results_frame.grid_columnconfigure(0, weight=1) # Label Column
-        self.results_frame.grid_columnconfigure(1, weight=1) # Value column
+        self.results_frame.grid_columnconfigure(0, weight=1)
+        self.results_frame.grid_columnconfigure(1, weight=1)
 
-         # Result Labels, Values are initially empty.
-        self.total_bookings_label = ctk.CTkLabel(self.results_frame, text="Total Bookings:", font=("Arial", 14, "bold"))
-        self.total_bookings_label.grid(row=0, column=0, padx=10, pady=2, sticky="e")
-        self.total_bookings_value_label = ctk.CTkLabel(self.results_frame, text="", font=("Arial", 14))
-        self.total_bookings_value_label.grid(row=0, column=1, padx=10, pady=2, sticky="w")
+        self.update_idletasks()
 
-        self.total_cancellations_label = ctk.CTkLabel(self.results_frame, text="Total Cancellations:", font=("Arial", 14, "bold"))
-        self.total_cancellations_label.grid(row=1, column=0, padx=10, pady=2, sticky="e")
+        self.total_cancellations_label = ctk.CTkLabel(self.results_frame, text="Cancellations:", font=("Arial", 14, "bold"))
+        self.total_cancellations_label.grid(row=0, column=0, padx=10, pady=2, sticky="e")
         self.total_cancellations_value_label = ctk.CTkLabel(self.results_frame, text="", font=("Arial", 14))
-        self.total_cancellations_value_label.grid(row=1, column=1, padx=10, pady=2, sticky="w")
+        self.total_cancellations_value_label.grid(row=0, column=1, padx=10, pady=2, sticky="w")
 
-        self.candidate_flights_label = ctk.CTkLabel(self.results_frame, text="Candidate Flights:", font=("Arial", 14, "bold"))
-        self.candidate_flights_label.grid(row=2, column=0, padx=10, pady=2, sticky="e")
-        self.candidate_flights_value_label = ctk.CTkLabel(self.results_frame, text="", font=("Arial", 14))
-        self.candidate_flights_value_label.grid(row=2, column=1, padx=10, pady=2, sticky="w")
+        self.reaccom_passengers_label = ctk.CTkLabel(self.results_frame, text="Reaccomodated passengers:", font=("Arial", 14, "bold"))
+        self.reaccom_passengers_label.grid(row=1, column=0, padx=10, pady=2, sticky="e")
+        self.reaccom_passengers_value_label = ctk.CTkLabel(self.results_frame, text="", font=("Arial", 14))
+        self.reaccom_passengers_value_label.grid(row=1, column=1, padx=10, pady=2, sticky="w")
 
-        self.reaccomodated_cancellations_label = ctk.CTkLabel(self.results_frame, text="Reaccomodated Cancellations:", font=("Arial", 14, "bold"))
-        self.reaccomodated_cancellations_label.grid(row=3, column=0, padx=10, pady=2, sticky="e")
-        self.reaccomodated_cancellations_value_label = ctk.CTkLabel(self.results_frame, text="", font=("Arial", 14))
-        self.reaccomodated_cancellations_value_label.grid(row=3, column=1, padx=10, pady=2, sticky="w")
+        self.num_reaccom_label = ctk.CTkLabel(self.results_frame, text="Number of Reaccomodations:", font=("Arial", 14, "bold"))
+        self.num_reaccom_label.grid(row=2, column=0, padx=10, pady=2, sticky="e")
+        self.num_reaccom_value_label = ctk.CTkLabel(self.results_frame, text="", font=("Arial", 14))
+        self.num_reaccom_value_label.grid(row=2, column=1, padx=10, pady=2, sticky="w")
 
-        self.reaccomodation_rate_label = ctk.CTkLabel(self.results_frame, text="Reaccomodation Rate:", font=("Arial", 14, "bold"))
+        self.feasible_reaccom_label = ctk.CTkLabel(self.results_frame, text="Total number of feasible reaccomodations:", font=("Arial", 14, "bold"))
+        self.feasible_reaccom_label.grid(row=3, column=0, padx=10, pady=2, sticky="e")
+        self.feasible_reaccom_value_label = ctk.CTkLabel(self.results_frame, text="", font=("Arial", 14))
+        self.feasible_reaccom_value_label.grid(row=3, column=1, padx=10, pady=2, sticky="w")
+
+        self.reaccomodation_rate_label = ctk.CTkLabel(self.results_frame, text="Reaccomodation rate:", font=("Arial", 14, "bold"))
         self.reaccomodation_rate_label.grid(row=4, column=0, padx=10, pady=2, sticky="e")
         self.reaccomodation_rate_value_label = ctk.CTkLabel(self.results_frame, text="", font=("Arial", 14))
         self.reaccomodation_rate_value_label.grid(row=4, column=1, padx=10, pady=2, sticky="w")
 
-        self.total_runtime_label = ctk.CTkLabel(self.results_frame, text="Total Runtime:", font=("Arial", 14, "bold"))
+        self.total_runtime_label = ctk.CTkLabel(self.results_frame, text="Runtime:", font=("Arial", 14, "bold"))
         self.total_runtime_label.grid(row=5, column=0, padx=10, pady=2, sticky="e")
         self.total_runtime_value_label = ctk.CTkLabel(self.results_frame, text="", font=("Arial", 14))
         self.total_runtime_value_label.grid(row=5, column=1, padx=10, pady=2, sticky="w")
-        
-        #Pie chart canvas
-        self.pie_chart_frame = ctk.CTkFrame(self.main_container)
-        self.pie_chart_frame.grid(row=6, column = 0, columnspan=4, sticky="nsew", padx=10, pady=10)
-        self.pie_chart_frame.grid_remove() # Hide Initially
 
+        self.num_variables_label = ctk.CTkLabel(self.results_frame, text="Number of variables:", font=("Arial", 14, "bold"))
+        self.num_variables_label.grid(row=6, column=0, padx=10, pady=2, sticky="e")
+        self.num_variables_value_label = ctk.CTkLabel(self.results_frame, text="", font=("Arial", 14))
+        self.num_variables_value_label.grid(row=6, column=1, padx=10, pady=2, sticky="w")
+
+        self.pie_chart_frame = ctk.CTkFrame(self.main_container)
+        self.pie_chart_frame.grid(row=7, column = 0, columnspan=4, sticky="nsew", padx=10, pady=10)
+        self.pie_chart_frame.grid_remove()
 
     def _apply_styles(self) -> None:
-        ctk.set_appearance_mode(self.current_theme)
-    def create_pie_chart(self):
-        """Creates and displays the pie chart."""
-        # Data for the pie chart
-        labels = ['Reaccomodated', 'Not Reaccomodated']
-        sizes = [self.reaccomodation_rate, 100 - self.reaccomodation_rate]  # Calculate 'Not Reaccomodated'
+        pass
 
-        # Create a Figure
-        fig = Figure(figsize=(4, 4), dpi=100)
-        ax = fig.add_subplot(111)
-
-        # Create the pie chart
-        ax.pie(sizes, labels=labels, autopct='%1.1f%%', startangle=90)
-        ax.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
-        ax.set_title("Reaccommodation Rate", fontdict={'fontsize': 14})
-        
-        # Embed the Matplotlib Figure in the Tkinter widget
-        self.canvas = FigureCanvasTkAgg(fig, master=self.pie_chart_frame)
-        self.canvas.draw()
-        self.canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=1)
-        
-    def _create_csv_view(self, csv_window: ctk.CTkToplevel) -> None:
-        """Creates and displays a new window with all the CSV data using Treeview with search and sorting."""
+    def _get_current_theme_colors(self):
         try:
-            if self.full_data:
-                # Create a frame for search input and button
+            temp_frame = ctk.CTkFrame(self)
+            temp_label = ctk.CTkLabel(temp_frame, text="")
+            self.update_idletasks()
+            bg_color = temp_frame.cget("fg_color")
+            text_color = temp_label.cget("text_color")
+            temp_label.destroy()
+            temp_frame.destroy()
+
+            if isinstance(bg_color, (list, tuple)):
+                bg_color = bg_color[1] if self.current_theme == "dark" else bg_color[0]
+            if isinstance(text_color, (list, tuple)):
+                text_color = text_color[1] if self.current_theme == "dark" else text_color[0]
+
+            if not mcolors.is_color_like(bg_color):
+                bg_color = 'white' if self.current_theme == "light" else '#2B2B2B'
+            if not mcolors.is_color_like(text_color):
+                text_color = 'black' if self.current_theme == "light" else 'white'
+
+            return bg_color, text_color
+
+        except Exception:
+            bg = 'white' if self.current_theme == "light" else '#2B2B2B'
+            txt = 'black' if self.current_theme == "light" else 'white'
+            return bg, txt
+
+
+    def create_pie_chart(self):
+        for widget in self.pie_chart_frame.winfo_children():
+            widget.destroy()
+        self.canvas = None
+
+        labels = ['Reaccomodated', 'Not Reaccomodated']
+        rate_percent = self.reaccomodation_rate
+        sizes = [rate_percent, 100 - rate_percent]
+
+        bg_color, text_color = self._get_current_theme_colors()
+        pie_text_color = 'white' if self.current_theme == 'dark' else 'black'
+
+        try:
+            fig = Figure(figsize=(4, 3), dpi=100, facecolor=bg_color)
+            ax = fig.add_subplot(111)
+            ax.set_facecolor(bg_color)
+
+            wedges, texts, autotexts = ax.pie(sizes, labels=labels, autopct='%1.2f%%', startangle=90,
+                                              textprops=dict(color=text_color))
+            for autotext in autotexts:
+                 autotext.set_color(pie_text_color)
+
+            ax.axis('equal')
+            ax.set_title("Reaccommodation Rate", fontdict={'fontsize': 14}, color=text_color)
+
+            self.canvas = FigureCanvasTkAgg(fig, master=self.pie_chart_frame)
+            self.canvas.draw()
+            self.canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=1)
+
+        except ValueError as e:
+             messagebox.showerror("Plotting Error", f"Failed to create pie chart.\nColor error: {e}\nUsing fallback colors.")
+             bg_color_fallback = 'white' if self.current_theme == "light" else 'black'
+             text_color_fallback = 'black' if self.current_theme == "light" else 'white'
+             fig = Figure(figsize=(4, 3), dpi=100, facecolor=bg_color_fallback)
+             ax = fig.add_subplot(111)
+             ax.set_facecolor(bg_color_fallback)
+             wedges, texts, autotexts = ax.pie(sizes, labels=labels, autopct='%1.2f%%', startangle=90,
+                                              textprops=dict(color=text_color_fallback))
+             for autotext in autotexts:
+                 autotext.set_color('grey')
+             ax.axis('equal')
+             ax.set_title("Reaccommodation Rate", fontdict={'fontsize': 14}, color=text_color_fallback)
+             self.canvas = FigureCanvasTkAgg(fig, master=self.pie_chart_frame)
+             self.canvas.draw()
+             self.canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=1)
+
+
+    def _create_csv_view(self, csv_window: ctk.CTkToplevel) -> None:
+        try:
+            if self.full_data and len(self.full_data) > 0:
                 search_frame = ctk.CTkFrame(csv_window)
                 search_frame.pack(pady=5, padx=5, fill="x")
 
-                # Search Entry
-                self.search_entry = ctk.CTkEntry(search_frame)
+                self.search_entry = ctk.CTkEntry(search_frame, placeholder_text="Search...")
                 self.search_entry.pack(side=tk.LEFT, padx=5, fill="x", expand=True)
+                self.search_entry.bind("<Return>", lambda event: self._search_treeview())
 
-                # Search Button
                 search_button = ctk.CTkButton(search_frame, text="Search", command=self._search_treeview)
                 search_button.pack(side=tk.LEFT, padx=5)
+                clear_button = ctk.CTkButton(search_frame, text="Clear", command=self._clear_search)
+                clear_button.pack(side=tk.LEFT, padx=5)
 
-                # Create Treeview widget
-                self.tree = ttk.Treeview(csv_window, show="headings")
-                self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+                style = ttk.Style()
+                self._update_treeview_style(style)
 
-                # Add Scrollbars
+                self.tree = ttk.Treeview(csv_window, show="headings", style="Treeview")
+                self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=(0,5))
+
                 vscroll = ttk.Scrollbar(csv_window, orient="vertical", command=self.tree.yview)
-                vscroll.pack(side=tk.RIGHT, fill="y")
+                vscroll.pack(side=tk.RIGHT, fill="y", pady=(0,5))
                 self.tree.configure(yscrollcommand=vscroll.set)
 
                 hscroll = ttk.Scrollbar(csv_window, orient="horizontal", command=self.tree.xview)
-                hscroll.pack(side=tk.BOTTOM, fill="x")
+                hscroll.pack(side=tk.BOTTOM, fill="x", padx=5, pady=(0,5))
                 self.tree.configure(xscrollcommand=hscroll.set)
-                
-                # Define columns
-                column_names = self.full_data[0]  # Assuming first row is the header
+
+                if not self.full_data: return
+                column_names = self.full_data[0]
                 self.tree["columns"] = column_names
 
-                # Store sorting state for each column (None: not sorted, True: ascending, False: descending)
                 self.sort_states = {col: None for col in column_names}
 
-                # Format columns
                 for col in column_names:
-                    self.tree.column(col, width=150, anchor="w")
-                    self.tree.heading(col, text=col, command=lambda c=col: self._sort_column(c))
+                    self.tree.column(col, width=150, minwidth=80, anchor="w")
+                    self.tree.heading(col, text=col + "   ", anchor='w', command=lambda c=col: self._sort_column(c))
 
-                # Store all data to restore after search
-                self.all_data = self.full_data[1:]
+                self.all_data = self.full_data[1:] if len(self.full_data) > 1 else []
                 self._populate_treeview(self.all_data)
 
+            else:
+                 error_label = ctk.CTkLabel(csv_window, text="No CSV data available to display.")
+                 error_label.pack(padx=10, pady=10)
+
         except Exception as e:
-            messagebox.showerror("Error", f"Error parsing CSV file: {e}")
-            print(f"Error creating CSV view: {e}")
+            messagebox.showerror("Error", f"Error creating CSV view: {e}")
             error_label = ctk.CTkLabel(csv_window, text=f"Error displaying CSV view: {e}")
             error_label.pack(padx=10, pady=10)
 
     def _populate_treeview(self, data):
-        # Clear existing data in the treeview
+        if not hasattr(self, 'tree') or not self.tree.winfo_exists(): return
         for item in self.tree.get_children():
             self.tree.delete(item)
-
-        # Insert new data
-        for row in data:
+        for i, row in enumerate(data):
             self.tree.insert("", tk.END, values=row)
 
     def _search_treeview(self):
-        search_text = self.search_entry.get().lower()
-        filtered_data = []
+        if not hasattr(self, 'search_entry') or not hasattr(self, 'all_data') or not hasattr(self, 'tree'):
+             return
 
+        search_text = self.search_entry.get().lower().strip()
+        if not search_text:
+             self._populate_treeview(self.all_data)
+             for col in self.sort_states:
+                 if hasattr(self, 'tree') and self.tree.winfo_exists():
+                    try:
+                         self.tree.heading(col, text=col + "   ")
+                    except tk.TclError: pass
+                 self.sort_states[col] = None
+             return
+
+        filtered_data = []
         for row in self.all_data:
             if any(search_text in str(value).lower() for value in row):
                 filtered_data.append(row)
 
         self._populate_treeview(filtered_data)
+        for col in self.sort_states:
+             if hasattr(self, 'tree') and self.tree.winfo_exists():
+                 try:
+                     self.tree.heading(col, text=col + "   ")
+                 except tk.TclError: pass
+             self.sort_states[col] = None
+
+    def _clear_search(self):
+         if not hasattr(self, 'search_entry') or not hasattr(self, 'all_data'):
+             return
+         self.search_entry.delete(0, tk.END)
+         self._populate_treeview(self.all_data)
+         for col in self.sort_states:
+             if hasattr(self, 'tree') and self.tree.winfo_exists():
+                 try:
+                     self.tree.heading(col, text=col + "   ")
+                 except tk.TclError: pass
+             self.sort_states[col] = None
+
 
     def _sort_column(self, col):
-        """Sorts the treeview by the specified column."""
-        current_state = self.sort_states[col]
+        if not hasattr(self, 'tree') or not self.tree.winfo_exists() or not hasattr(self, 'sort_states'): return
 
-        if current_state is None:  # Not sorted yet -> sort ascending
-            reverse = False
-            self.sort_states[col] = True
-        elif current_state is True:  # Sorted ascending -> sort descending
-            reverse = True
-            self.sort_states[col] = False
-        else:  # Sorted descending -> no sorting
-            reverse = False
-            self.sort_states[col] = None # Return to unsorted
-            self._populate_treeview(self.all_data) #Repopulate with original data
-            return
+        current_state = self.sort_states.get(col)
+        reverse_sort = False
+
+        if current_state is None:
+            new_state = True
+            reverse_sort = False
+            sort_indicator = " ▲"
+        elif current_state is True:
+            new_state = False
+            reverse_sort = True
+            sort_indicator = " ▼"
+        else:
+            new_state = True
+            reverse_sort = False
+            sort_indicator = " ▲"
+
+        for c in self.sort_states:
+             if c != col:
+                 try:
+                     self.tree.heading(c, text=c + "   ")
+                 except tk.TclError: pass
+                 self.sort_states[c] = None
+
+        try:
+            self.tree.heading(col, text=col + sort_indicator)
+        except tk.TclError: pass
+        self.sort_states[col] = new_state
 
         data = [(self.tree.set(child, col), child) for child in self.tree.get_children("")]
-        
-        # Sort based on data type (numeric or string)
-        try:
-            data.sort(key=lambda x: float(x[0]), reverse=reverse)  # Try sorting as float
-        except ValueError:
-            data.sort(reverse=reverse)  # If float conversion fails, sort as string
 
-        for index, (values, child) in enumerate(data):
-            self.tree.move(child, "", index)  # Reorder items in treeview
+        try:
+            def sort_key(x):
+                try:
+                    val = x[0]
+                    return float(val) if val else float('-inf')
+                except (ValueError, TypeError):
+                    val = x[0] if x[0] is not None else ""
+                    return str(val).lower()
+
+            data.sort(key=sort_key, reverse=reverse_sort)
+
+        except Exception:
+            data.sort(key=lambda x: str(x[0] if x[0] is not None else "").lower(), reverse=reverse_sort)
+
+        for index, (val, child) in enumerate(data):
+            self.tree.move(child, "", index)
 
 
     def _update_optimization_time(self, value: float) -> None:
-        """Updates the optimization time label with the current slider value."""
         minutes = int(value)
         self.optimization_time_label.configure(text=f"Optimization Time: {minutes} mins")
-        self.optimization_time_label.configure(font=("Arial", 12, "bold"))  # Make label bold
 
     def _simulate_run(self) -> None:
-        # Disable button during simulation
-        self.run_button.configure(state="disabled")
-        
-        # Loading symbol
+        self.run_button.configure(state="disabled", text="Running...")
+
+        if self.loading_symbol: self.loading_symbol.destroy()
         self.loading_symbol = ttk.Progressbar(self.main_container, mode="indeterminate", length=200)
-        self.loading_symbol.grid(row = 1, column = 1, columnspan = 1, padx = 20, pady = 10, sticky="ew")
-        self.loading_symbol.start()
+        self.loading_symbol.grid(row = 1, column = 0, columnspan=2, padx = 20, pady = 10, sticky="ew")
+        self.loading_symbol.start(10)
 
-        # Get optimization time from slider
-        optimization_time = self.optimization_time_value.get()  # get the value from tk.IntVar
-
-        # Simulate time and display results in another thread
-        #wait_time_ms = int(random.uniform(4000, 6000) + (optimization_time * 1))  # Add optimization time in milliseconds
-        wait_time_ms = int(random.uniform(max(0, optimization_time - 30000), optimization_time + 30000))
+        optimization_time = self.optimization_time_value.get()
+        wait_time_ms = 2000
         self.after(wait_time_ms, self._display_results)
 
     def _display_results(self) -> None:
-        # Stop loading and re-enable the button
         if self.loading_symbol:
             self.loading_symbol.stop()
-            self.loading_symbol.destroy()
-            self.loading_symbol = None
-        self.run_button.configure(state="normal")
-        
-        # Display results on labels
-        self.total_bookings_value_label.configure(text=f"{self.total_bookings}")
-        self.total_cancellations_value_label.configure(text=f"{self.total_cancellations}")
-        self.candidate_flights_value_label.configure(text=f"{self.candidate_flights}")
-        self.reaccomodated_cancellations_value_label.configure(text=f"{self.reaccomodated_cancellations}")
-        self.reaccomodation_rate_value_label.configure(text=f"{self.reaccomodation_rate}%")
-        self.total_runtime_value_label.configure(text=f"{self.total_runtime} mins")
-        
-        # Show Pie Chart
-        self.create_pie_chart() #create the Pie Chart
-        self.pie_chart_frame.grid(row=3, column=0, columnspan=4, sticky="nsew", padx=10, pady=10)
+            self.loading_symbol.grid_forget()
+        self.run_button.configure(state="normal", text="Run")
 
-        # Create new window for csv
-        if self.csv_window is None:
+        self.total_cancellations_value_label.configure(text=f"{self.total_cancellations:,}")
+        self.reaccom_passengers_value_label.configure(text=f"{self.reaccomodated_passengers:,}")
+        self.num_reaccom_value_label.configure(text=f"{self.num_reaccomodations:,}")
+        self.feasible_reaccom_value_label.configure(text=f"{self.feasible_reaccomodations:,}")
+        self.reaccomodation_rate_value_label.configure(text=f"{self.reaccomodation_rate:.4f}%")
+        self.total_runtime_value_label.configure(text=f"{self.total_runtime} minutes")
+        self.num_variables_value_label.configure(text=f"{self.num_variables:,}")
+
+        self.create_pie_chart()
+        self.pie_chart_frame.grid()
+
+        if self.csv_window is None or not self.csv_window.winfo_exists():
             self.csv_window = ctk.CTkToplevel(self)
             self.csv_window.title("Full CSV Data")
             self.csv_window.geometry("1200x500")
+            self.csv_window.protocol("WM_DELETE_WINDOW", self._on_csv_close)
             self._create_csv_view(self.csv_window)
+        else:
+            self.csv_window.lift()
+            self.csv_window.focus()
+
+    def _on_csv_close(self):
+        """Handle CSV window closing."""
+        if self.csv_window:
+            self.csv_window.destroy()
+        self.csv_window = None
 
     def _toggle_theme(self) -> None:
-        self.current_theme = "dark" if self.current_theme == "light" else "light"
-        ctk.set_appearance_mode(self.current_theme)
+        new_mode = "dark" if ctk.get_appearance_mode() == "Light" else "light"
+        ctk.set_appearance_mode(new_mode)
+        self.current_theme = new_mode
+
+        if self.csv_window and self.csv_window.winfo_exists() and hasattr(self, 'tree'):
+             self._update_treeview_style()
+        if self.canvas:
+             self.create_pie_chart()
+
+
+    def _update_treeview_style(self, style=None):
+         if not style: style = ttk.Style()
+
+         bg_color, _ = self._get_current_theme_colors()
+         header_text_color = 'black'
+         _, data_text_color = self._get_current_theme_colors()
+
+         if self.current_theme == "dark":
+             selected_color = '#2B2B2B'
+         else:
+             selected_color = '#DCE4EE'
+
+         header_bg_color = 'white'
+
+         try:
+             style.theme_use("default")
+             # Configure rows
+             style.configure("Treeview", background=bg_color, foreground=data_text_color, fieldbackground=bg_color, rowheight=25)
+             style.map('Treeview', background=[('selected', selected_color)])
+             # Configure header
+             style.configure("Treeview.Heading", background=header_bg_color, foreground=header_text_color, font=('Arial', 10,'bold'), relief='flat')
+             style.map("Treeview.Heading", background=[('active', '#F0F0F0')]) # Slightly off-white active color for header
+
+             if hasattr(self, 'tree') and self.tree.winfo_exists():
+                 self.tree.update_idletasks()
+         except tk.TclError as e:
+             pass
+
 
 def main() -> None:
-    dir = os.path.dirname(os.path.abspath(__file__))
-    csv_file = os.path.join(dir, 'Mphasis Hackathon.csv')
-    app = ReaccomGUI(csv_file)
+    try:
+        dir_path = os.path.dirname(os.path.abspath(__file__))
+    except NameError:
+        dir_path = os.getcwd()
+
+    dummy_csv_file = os.path.join(dir_path, 'Mphasis Hackathon.csv')
+
+    app = ReaccomGUI(dummy_csv_file)
     app.mainloop()
 
 if __name__ == "__main__":
