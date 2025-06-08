@@ -5,7 +5,10 @@ import os
 import customtkinter as ctk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
+import matplotlib.pyplot as plt  # Import pyplot for subplots
 from matplotlib import colors as mcolors
+import numpy as np
+from datetime import datetime
 
 class ReaccomGUI(ctk.CTk):
     def __init__(self, csv_path: str):
@@ -34,6 +37,7 @@ class ReaccomGUI(ctk.CTk):
             self.full_data = [['Error'], [f'Could not read file: {e}']]
 
         self.csv_window = None
+        self.graph_window = None
         self.canvas = None
 
         self.total_cancellations = 15096
@@ -74,6 +78,227 @@ class ReaccomGUI(ctk.CTk):
             if not full_data: full_data.append(['Info'])
 
         return full_data
+
+    def _prepare_cvm_plot_data(self):
+        reaccom_cvms = []
+        if not self.full_data or len(self.full_data) < 2:
+            return None, None
+
+        header = self.full_data[0]
+        header_lower = [h.lower() for h in header]
+
+        try:
+            cvm_idx = header_lower.index('cvm')
+            alt_dep_key_idx = header_lower.index('alt_dep_key')
+        except ValueError:
+            messagebox.showerror("CSV Error", "A required column (CVM or ALT_DEP_KEY) was not found in Results_DWAVE.csv.")
+            return None, None
+
+        for row in self.full_data[1:]:
+            if len(row) > alt_dep_key_idx and row[alt_dep_key_idx].strip():
+                try:
+                    cvm_value = float(row[cvm_idx])
+                    reaccom_cvms.append(cvm_value)
+                except (ValueError, TypeError):
+                    continue
+        
+        if not reaccom_cvms:
+            messagebox.showinfo("Info", "No re-accommodated passengers with valid CVM found.")
+            return None, None
+
+        num_bins = 15
+        counts, bin_edges = np.histogram(reaccom_cvms, bins=num_bins)
+        bin_labels = [f"{bin_edges[i]:.3f} - {bin_edges[i+1]:.3f}" for i in range(len(counts))]
+        
+        return bin_labels, counts
+
+    def _prepare_delay_plot_data(self):
+        delays_in_hours = []
+        if not self.full_data or len(self.full_data) < 2:
+            return None, None
+
+        header = self.full_data[0]
+        header_lower = [h.lower() for h in header]
+
+        try:
+            orig_dep_idx = header_lower.index('dep_dtmz')
+            alt_dep_idx = header_lower.index('alt_dep_dtmz')
+            alt_dep_key_idx = header_lower.index('alt_dep_key')
+        except ValueError:
+            messagebox.showerror("CSV Error", "A required column (DEP_DTMZ, ALT_DEP_DTMZ, or ALT_DEP_KEY) was not found.")
+            return None, None
+
+        date_format = "%Y-%m-%d %H:%M"
+        
+        for row in self.full_data[1:]:
+            is_reaccom = len(row) > alt_dep_key_idx and row[alt_dep_key_idx].strip()
+            has_orig_date = len(row) > orig_dep_idx and row[orig_dep_idx].strip()
+            has_alt_date = len(row) > alt_dep_idx and row[alt_dep_idx].strip()
+
+            if is_reaccom and has_orig_date and has_alt_date:
+                try:
+                    orig_dt = datetime.strptime(row[orig_dep_idx].strip(), date_format)
+                    alt_dt = datetime.strptime(row[alt_dep_idx].strip(), date_format)
+                    
+                    delay = alt_dt - orig_dt
+                    delays_in_hours.append(delay.total_seconds() / 3600)
+                except (ValueError, TypeError):
+                    continue
+
+        if not delays_in_hours:
+            messagebox.showinfo("Info", "No valid reaccommodation delays could be calculated. Please check the data in the CSV.")
+            return None, None
+
+        max_delay = max(delays_in_hours) if delays_in_hours else 0
+        bin_size = 4
+        bin_edges = np.arange(0, max_delay + bin_size, bin_size)
+        
+        counts, _ = np.histogram(delays_in_hours, bins=bin_edges)
+        
+        bin_labels = [f"{int(bin_edges[i])}-{int(bin_edges[i+1])} hrs" for i in range(len(counts))]
+        
+        return bin_labels, counts
+
+    def _prepare_recloc_plot_data(self):
+        if not self.full_data or len(self.full_data) < 2:
+            return None, None
+
+        header = self.full_data[0]
+        header_lower = [h.lower() for h in header]
+
+        try:
+            recloc_idx = header_lower.index('recloc')
+            alt_dep_key_idx = header_lower.index('alt_dep_key')
+        except ValueError:
+            messagebox.showerror("CSV Error", "A required column (RECLOC or ALT_DEP_KEY) was not found.")
+            return None, None
+
+        # Step 1: Count re-accommodations for each RECLOC
+        recloc_counts = {}
+        for row in self.full_data[1:]:
+            recloc = row[recloc_idx].strip()
+            if not recloc:
+                continue
+
+            if recloc not in recloc_counts:
+                recloc_counts[recloc] = 0
+            
+            is_reaccom = len(row) > alt_dep_key_idx and row[alt_dep_key_idx].strip()
+            if is_reaccom:
+                recloc_counts[recloc] += 1
+
+        if not recloc_counts:
+            messagebox.showinfo("Info", "No RECLOC data found to analyze.")
+            return None, None
+            
+        # ### FIXED: Aggregate the counts with a cap at 6 ###
+        # Step 2: Aggregate the counts, grouping 6 or more together.
+        distribution = {}
+        max_flights_to_show = 6
+        for num_flights in recloc_counts.values():
+            # If the number of flights is 6 or more, group it into the max category
+            key = min(num_flights, max_flights_to_show)
+            distribution[key] = distribution.get(key, 0) + 1
+            
+        if not distribution:
+            return None, None
+
+        # Step 3: Prepare sorted labels and data for plotting with the "6+" label
+        sorted_keys = sorted(distribution.keys())
+        plot_counts = [distribution[key] for key in sorted_keys]
+        
+        plot_labels = []
+        def pluralize(n):
+            return 's' if n != 1 else ''
+
+        for key in sorted_keys:
+            # If the key is the max value we're showing, label it as "6+"
+            if key == max_flights_to_show:
+                plot_labels.append(f"{key}+ Flights")
+            else:
+                plot_labels.append(f"{key} Flight{pluralize(key)}")
+
+        return plot_labels, plot_counts
+
+    def _create_graph_window(self):
+        if self.graph_window is not None and self.graph_window.winfo_exists():
+            self.graph_window.lift()
+            self.graph_window.focus()
+            return
+        
+        cvm_labels, cvm_counts = self._prepare_cvm_plot_data()
+        delay_labels, delay_counts = self._prepare_delay_plot_data()
+        recloc_labels, recloc_counts = self._prepare_recloc_plot_data()
+
+        self.graph_window = ctk.CTkToplevel(self)
+        self.graph_window.title("Analysis Graphs")
+        self.graph_window.geometry("900x950")
+        self.graph_window.protocol("WM_DELETE_WINDOW", self._on_graph_close)
+
+        bg_color, text_color = self._get_current_theme_colors()
+
+        fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(8, 11), facecolor=bg_color)
+
+        # Plot 1: CVM Data
+        if cvm_labels is not None and len(cvm_labels) > 0:
+            ax1.bar(cvm_labels, cvm_counts, color="#5DADE2")
+            ax1.set_title('Re-accommodated Passengers by CVM', color=text_color, fontsize=14)
+            ax1.set_xlabel('CVM Bins', color=text_color, fontsize=10)
+            ax1.set_ylabel('# of Passengers', color=text_color, fontsize=10)
+            ax1.tick_params(axis='x', labelrotation=45, colors=text_color, labelsize=8)
+            ax1.tick_params(axis='y', colors=text_color, labelsize=8)
+            ax1.grid(axis='y', linestyle='--', alpha=0.6)
+            ax1.set_facecolor(bg_color)
+            for spine in ax1.spines.values():
+                spine.set_edgecolor(text_color)
+        else:
+            ax1.text(0.5, 0.5, 'CVM data not available', ha='center', va='center', color=text_color)
+            ax1.set_facecolor(bg_color)
+            ax1.set_xticks([])
+            ax1.set_yticks([])
+
+        # Plot 2: Delay Data
+        if delay_labels is not None and len(delay_labels) > 0:
+            ax2.bar(delay_labels, delay_counts, color="#F5B041")
+            ax2.set_title('Re-accommodation Delay Distribution', color=text_color, fontsize=14)
+            ax2.set_xlabel('Delay Bins (hours)', color=text_color, fontsize=10)
+            ax2.set_ylabel('# of Passengers', color=text_color, fontsize=10)
+            ax2.tick_params(axis='x', labelrotation=45, colors=text_color, labelsize=8)
+            ax2.tick_params(axis='y', colors=text_color, labelsize=8)
+            ax2.grid(axis='y', linestyle='--', alpha=0.6)
+            ax2.set_facecolor(bg_color)
+            for spine in ax2.spines.values():
+                spine.set_edgecolor(text_color)
+        else:
+            ax2.text(0.5, 0.5, 'Delay data not available', ha='center', va='center', color=text_color)
+            ax2.set_facecolor(bg_color)
+            ax2.set_xticks([])
+            ax2.set_yticks([])
+
+        # Plot 3: Re-accommodations per RECLOC
+        if recloc_labels is not None and len(recloc_labels) > 0:
+            ax3.bar(recloc_labels, recloc_counts, color="#2ECC71")
+            ax3.set_title('Distribution of Alternate Flights per Booking', color=text_color, fontsize=14)
+            ax3.set_xlabel('# of Alternate Flights', color=text_color, fontsize=10)
+            ax3.set_ylabel('# of Bookings (RECLOCs)', color=text_color, fontsize=10)
+            ax3.tick_params(axis='x', labelrotation=45, colors=text_color, labelsize=8)
+            ax3.tick_params(axis='y', colors=text_color, labelsize=8)
+            ax3.grid(axis='y', linestyle='--', alpha=0.6)
+            ax3.set_facecolor(bg_color)
+            for spine in ax3.spines.values():
+                spine.set_edgecolor(text_color)
+        else:
+            ax3.text(0.5, 0.5, 'Booking distribution data not available', ha='center', va='center', color=text_color)
+            ax3.set_facecolor(bg_color)
+            ax3.set_xticks([])
+            ax3.set_yticks([])
+
+
+        fig.tight_layout(pad=3.0)
+
+        canvas = FigureCanvasTkAgg(fig, master=self.graph_window)
+        canvas.draw()
+        canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=10, pady=10)
 
     def create_widgets(self) -> None:
         title_label = ctk.CTkLabel(self, text="COPA Reaccommodation Analysis", font=("Arial", 24, "bold"))
@@ -423,12 +648,18 @@ class ReaccomGUI(ctk.CTk):
         else:
             self.csv_window.lift()
             self.csv_window.focus()
+            
+        self._create_graph_window()
 
     def _on_csv_close(self):
-        """Handle CSV window closing."""
         if self.csv_window:
             self.csv_window.destroy()
         self.csv_window = None
+
+    def _on_graph_close(self):
+        if self.graph_window:
+            self.graph_window.destroy()
+        self.graph_window = None
 
     def _toggle_theme(self) -> None:
         new_mode = "dark" if ctk.get_appearance_mode() == "Light" else "light"
@@ -439,6 +670,10 @@ class ReaccomGUI(ctk.CTk):
              self._update_treeview_style()
         if self.canvas:
              self.create_pie_chart()
+        
+        if self.graph_window and self.graph_window.winfo_exists():
+            self.graph_window.destroy()
+            self._create_graph_window()
 
 
     def _update_treeview_style(self, style=None):
@@ -457,12 +692,10 @@ class ReaccomGUI(ctk.CTk):
 
          try:
              style.theme_use("default")
-             # Configure rows
              style.configure("Treeview", background=bg_color, foreground=data_text_color, fieldbackground=bg_color, rowheight=25)
              style.map('Treeview', background=[('selected', selected_color)])
-             # Configure header
              style.configure("Treeview.Heading", background=header_bg_color, foreground=header_text_color, font=('Arial', 10,'bold'), relief='flat')
-             style.map("Treeview.Heading", background=[('active', '#F0F0F0')]) # Slightly off-white active color for header
+             style.map("Treeview.Heading", background=[('active', '#F0F0F0')])
 
              if hasattr(self, 'tree') and self.tree.winfo_exists():
                  self.tree.update_idletasks()
@@ -476,9 +709,9 @@ def main() -> None:
     except NameError:
         dir_path = os.getcwd()
 
-    dummy_csv_file = os.path.join(dir_path, 'Mphasis Hackathon.csv')
+    csv_file = os.path.join(dir_path, 'Mphasis Hackathon.csv')
 
-    app = ReaccomGUI(dummy_csv_file)
+    app = ReaccomGUI(csv_file)
     app.mainloop()
 
 if __name__ == "__main__":
