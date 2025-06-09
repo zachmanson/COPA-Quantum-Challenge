@@ -80,9 +80,6 @@ class ReaccomGUI(ctk.CTk):
         return full_data
 
     def _prepare_cvm_plot_data(self):
-        """
-        Calculates the re-accommodation PERCENTAGE for passengers within CVM bins.
-        """
         if not self.full_data or len(self.full_data) < 2:
             return None, None
 
