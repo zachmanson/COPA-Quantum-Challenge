@@ -5,7 +5,7 @@ import os
 import customtkinter as ctk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
-import matplotlib.pyplot as plt  # Import pyplot for subplots
+import matplotlib.pyplot as plt
 from matplotlib import colors as mcolors
 import numpy as np
 from datetime import datetime
@@ -80,7 +80,9 @@ class ReaccomGUI(ctk.CTk):
         return full_data
 
     def _prepare_cvm_plot_data(self):
-        reaccom_cvms = []
+        """
+        Calculates the re-accommodation PERCENTAGE for passengers within CVM bins.
+        """
         if not self.full_data or len(self.full_data) < 2:
             return None, None
 
@@ -91,26 +93,38 @@ class ReaccomGUI(ctk.CTk):
             cvm_idx = header_lower.index('cvm')
             alt_dep_key_idx = header_lower.index('alt_dep_key')
         except ValueError:
-            messagebox.showerror("CSV Error", "A required column (CVM or ALT_DEP_KEY) was not found in Results_DWAVE.csv.")
+            messagebox.showerror("CSV Error", "A required column (CVM or ALT_DEP_KEY) was not found.")
             return None, None
 
+        all_cvms = []
+        reaccom_cvms = []
         for row in self.full_data[1:]:
-            if len(row) > alt_dep_key_idx and row[alt_dep_key_idx].strip():
-                try:
-                    cvm_value = float(row[cvm_idx])
+            try:
+                cvm_value = float(row[cvm_idx])
+                all_cvms.append(cvm_value)
+                
+                if len(row) > alt_dep_key_idx and row[alt_dep_key_idx].strip():
                     reaccom_cvms.append(cvm_value)
-                except (ValueError, TypeError):
-                    continue
+            except (ValueError, TypeError):
+                continue
         
-        if not reaccom_cvms:
-            messagebox.showinfo("Info", "No re-accommodated passengers with valid CVM found.")
+        if not all_cvms:
+            messagebox.showinfo("Info", "No passengers with valid CVM found.")
             return None, None
 
         num_bins = 15
-        counts, bin_edges = np.histogram(reaccom_cvms, bins=num_bins)
-        bin_labels = [f"{bin_edges[i]:.3f} - {bin_edges[i+1]:.3f}" for i in range(len(counts))]
+        _, bin_edges = np.histogram(all_cvms, bins=num_bins)
         
-        return bin_labels, counts
+        total_counts, _ = np.histogram(all_cvms, bins=bin_edges)
+        reaccom_counts, _ = np.histogram(reaccom_cvms, bins=bin_edges)
+
+        percentages = np.divide(reaccom_counts, total_counts, 
+                                out=np.zeros_like(reaccom_counts, dtype=float), 
+                                where=total_counts!=0) * 100
+
+        bin_labels = [f"{bin_edges[i]:.3f} - {bin_edges[i+1]:.3f}" for i in range(len(total_counts))]
+        
+        return bin_labels, percentages
 
     def _prepare_delay_plot_data(self):
         delays_in_hours = []
@@ -173,7 +187,6 @@ class ReaccomGUI(ctk.CTk):
             messagebox.showerror("CSV Error", "A required column (RECLOC or ALT_DEP_KEY) was not found.")
             return None, None
 
-        # Step 1: Count re-accommodations for each RECLOC
         recloc_counts = {}
         for row in self.full_data[1:]:
             recloc = row[recloc_idx].strip()
@@ -191,19 +204,15 @@ class ReaccomGUI(ctk.CTk):
             messagebox.showinfo("Info", "No RECLOC data found to analyze.")
             return None, None
             
-        # ### FIXED: Aggregate the counts with a cap at 6 ###
-        # Step 2: Aggregate the counts, grouping 6 or more together.
         distribution = {}
         max_flights_to_show = 6
         for num_flights in recloc_counts.values():
-            # If the number of flights is 6 or more, group it into the max category
             key = min(num_flights, max_flights_to_show)
             distribution[key] = distribution.get(key, 0) + 1
             
         if not distribution:
             return None, None
 
-        # Step 3: Prepare sorted labels and data for plotting with the "6+" label
         sorted_keys = sorted(distribution.keys())
         plot_counts = [distribution[key] for key in sorted_keys]
         
@@ -212,7 +221,6 @@ class ReaccomGUI(ctk.CTk):
             return 's' if n != 1 else ''
 
         for key in sorted_keys:
-            # If the key is the max value we're showing, label it as "6+"
             if key == max_flights_to_show:
                 plot_labels.append(f"{key}+ Flights")
             else:
@@ -226,7 +234,7 @@ class ReaccomGUI(ctk.CTk):
             self.graph_window.focus()
             return
         
-        cvm_labels, cvm_counts = self._prepare_cvm_plot_data()
+        cvm_labels, cvm_percentages = self._prepare_cvm_plot_data()
         delay_labels, delay_counts = self._prepare_delay_plot_data()
         recloc_labels, recloc_counts = self._prepare_recloc_plot_data()
 
@@ -238,13 +246,14 @@ class ReaccomGUI(ctk.CTk):
         bg_color, text_color = self._get_current_theme_colors()
 
         fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(8, 11), facecolor=bg_color)
-
-        # Plot 1: CVM Data
+        
+        # Plot 1: CVM Data (as Percentage)
         if cvm_labels is not None and len(cvm_labels) > 0:
-            ax1.bar(cvm_labels, cvm_counts, color="#5DADE2")
-            ax1.set_title('Re-accommodated Passengers by CVM', color=text_color, fontsize=14)
+            ax1.bar(cvm_labels, cvm_percentages, color="#5DADE2")
+            ax1.set_title('Re-accommodation Rate by CVM', color=text_color, fontsize=14)
             ax1.set_xlabel('CVM Bins', color=text_color, fontsize=10)
-            ax1.set_ylabel('# of Passengers', color=text_color, fontsize=10)
+            ax1.set_ylabel('% Re-accommodated', color=text_color, fontsize=10)
+            ax1.yaxis.set_major_formatter(plt.matplotlib.ticker.PercentFormatter())
             ax1.tick_params(axis='x', labelrotation=45, colors=text_color, labelsize=8)
             ax1.tick_params(axis='y', colors=text_color, labelsize=8)
             ax1.grid(axis='y', linestyle='--', alpha=0.6)
@@ -292,7 +301,6 @@ class ReaccomGUI(ctk.CTk):
             ax3.set_facecolor(bg_color)
             ax3.set_xticks([])
             ax3.set_yticks([])
-
 
         fig.tight_layout(pad=3.0)
 
